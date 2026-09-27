@@ -38,7 +38,7 @@ export default function SettingsPage() {
     }
     // Clear localStorage
     if (typeof window !== "undefined") {
-      localStorage.removeItem("seo-audit-storage");
+      localStorage.removeItem("seo-audit-projects");
       toast.success("Всі дані видалено. Перезавантаження...");
       setTimeout(() => window.location.reload(), 1500);
     }

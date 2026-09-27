@@ -102,14 +102,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
     }
 
-    // Parse JSON from response
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return NextResponse.json({ error: "AI did not return valid JSON", raw: responseText }, { status: 422 });
+    // Try to extract JSON; fall back to returning plain text (e.g. for free-form explanations)
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const result = JSON.parse(jsonMatch[0]);
+        return NextResponse.json({ result });
+      }
+    } catch {
+      // JSON parse failed — fall through to raw text
     }
 
-    const result = JSON.parse(jsonMatch[0]);
-    return NextResponse.json({ result });
+    // Return raw text as result (free-form explanations, plain Ukrainian text, etc.)
+    return NextResponse.json({ result: responseText });
   } catch (err) {
     return NextResponse.json(
       { error: `AI analysis failed: ${(err as Error).message}` },
