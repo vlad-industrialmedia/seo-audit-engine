@@ -12,23 +12,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Star } from "lucide-react";
 
 interface ApiKeyCardProps {
   provider: AIProvider;
 }
 
 export function ApiKeyCard({ provider }: ApiKeyCardProps) {
-  const { settings, setApiKey, setApiKeyValidated } = useProjectStore();
+  const { settings, setApiKey, setApiKeyValidated, setDefaultProvider, setProviderModel } = useProjectStore();
   const providerSettings = settings.aiProviders[provider];
   const config = AI_PROVIDER_CONFIGS[provider];
 
   const [showKey, setShowKey] = useState(false);
   const [localKey, setLocalKey] = useState(providerSettings.apiKey || "");
   const [selectedModel, setSelectedModel] = useState(
-    config.models.find((m) => m.recommended)?.id || config.models[0]?.id || ""
+    providerSettings.model || config.models.find((m) => m.recommended)?.id || config.models[0]?.id || ""
   );
   const [validating, setValidating] = useState(false);
   const [showModels, setShowModels] = useState(false);
+
+  const isDefault = settings.defaultProvider === provider;
 
   const handleSave = () => {
     setApiKey(provider, localKey);
@@ -140,7 +143,7 @@ export function ApiKeyCard({ provider }: ApiKeyCardProps) {
         {/* Model selector */}
         <div className="space-y-1.5">
           <Label className="text-xs">Модель для тестування</Label>
-          <Select value={selectedModel} onValueChange={setSelectedModel}>
+          <Select value={selectedModel} onValueChange={(v) => { setSelectedModel(v); setProviderModel(provider, v); }}>
             <SelectTrigger className="text-xs h-8">
               <SelectValue />
             </SelectTrigger>
@@ -214,6 +217,20 @@ export function ApiKeyCard({ provider }: ApiKeyCardProps) {
             Перевірено: {new Date(providerSettings.validatedAt).toLocaleString("uk-UA")}
           </p>
         )}
+
+        {/* Set as default provider */}
+        <button
+          onClick={() => setDefaultProvider(isDefault ? undefined : provider)}
+          className={cn(
+            "w-full flex items-center justify-center gap-1.5 text-xs py-1.5 rounded-md border transition-colors",
+            isDefault
+              ? "border-yellow-400 bg-yellow-50 text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-600"
+              : "border-dashed text-muted-foreground hover:text-foreground hover:border-foreground/30"
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", isDefault && "fill-yellow-500 text-yellow-500 dark:fill-yellow-400 dark:text-yellow-400")} />
+          {isDefault ? "Провайдер за замовчуванням" : "Встановити за замовчуванням"}
+        </button>
       </CardContent>
     </Card>
   );

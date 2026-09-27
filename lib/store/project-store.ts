@@ -33,6 +33,8 @@ interface ProjectStore {
   updateSettings: (updates: Partial<AppSettings>) => void;
   setApiKey: (provider: AIProvider, apiKey: string) => void;
   setApiKeyValidated: (provider: AIProvider, validated: boolean) => void;
+  setDefaultProvider: (provider: AIProvider | undefined) => void;
+  setProviderModel: (provider: AIProvider, model: string) => void;
 
   // Import / Export
   exportProject: (id: string) => string;
@@ -252,6 +254,22 @@ export const useProjectStore = create<ProjectStore>()(
                 validated,
                 validatedAt: validated ? new Date().toISOString() : undefined,
               },
+            },
+          },
+        }));
+      },
+
+      setDefaultProvider: (provider) => {
+        set((s) => ({ settings: { ...s.settings, defaultProvider: provider } }));
+      },
+
+      setProviderModel: (provider, model) => {
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            aiProviders: {
+              ...s.settings.aiProviders,
+              [provider]: { ...s.settings.aiProviders[provider], model },
             },
           },
         }));
