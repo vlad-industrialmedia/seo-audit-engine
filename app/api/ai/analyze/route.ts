@@ -1,0 +1,119 @@
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(req: NextRequest) {
+  const { prompt, provider, apiKey, model } = await req.json();
+
+  if (!prompt || !provider || !apiKey) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  try {
+    let responseText = "";
+
+    switch (provider) {
+      case "anthropic": {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "claude-sonnet-4-6",
+            max_tokens: 2048,
+            messages: [{ role: "user", content: prompt }],
+            system: "You are a Senior SEO specialist. Always respond in valid JSON format as requested.",
+          }),
+        });
+        if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
+        const data = await res.json();
+        responseText = data.content?.[0]?.text || "";
+        break;
+      }
+
+      case "openrouter": {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://seo-audit-engine.vercel.app",
+            "X-Title": "SEO Audit Engine",
+          },
+          body: JSON.stringify({
+            model: model || "anthropic/claude-sonnet-4-6",
+            messages: [
+              { role: "system", content: "You are a Senior SEO specialist. Always respond in valid JSON format as requested." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 2048,
+          }),
+        });
+        if (!res.ok) throw new Error(`OpenRouter error: ${res.status}`);
+        const data = await res.json();
+        responseText = data.choices?.[0]?.message?.content || "";
+        break;
+      }
+
+      case "gemini": {
+        const modelId = model || "gemini-1.5-flash";
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
+              systemInstruction: { parts: [{ text: "You are a Senior SEO specialist. Respond only in valid JSON." }] },
+            }),
+          }
+        );
+        if (!res.ok) throw new Error(`Gemini error: ${res.status}`);
+        const data = await res.json();
+        responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        break;
+      }
+
+      case "grok": {
+        const res = await fetch("https://api.x.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "grok-beta",
+            messages: [
+              { role: "system", content: "You are a Senior SEO specialist. Respond in valid JSON." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 2048,
+          }),
+        });
+        if (!res.ok) throw new Error(`Grok error: ${res.status}`);
+        const data = await res.json();
+        responseText = data.choices?.[0]?.message?.content || "";
+        break;
+      }
+
+      default:
+        return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+    }
+
+    // Parse JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return NextResponse.json({ error: "AI did not return valid JSON", raw: responseText }, { status: 422 });
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    return NextResponse.json({ result });
+  } catch (err) {
+    return NextResponse.json(
+      { error: `AI analysis failed: ${(err as Error).message}` },
+      { status: 500 }
+    );
+  }
+}
