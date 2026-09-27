@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { CheckSquare, Square, ChevronDown, ChevronRight, ExternalLink, Filter, StickyNote } from "lucide-react";
-import type { Finding, Severity } from "@/types";
+import { CheckSquare, Square, ChevronDown, ChevronRight, ExternalLink, Filter, StickyNote, Sparkles, Loader2 } from "lucide-react";
+import type { Finding, Severity, AIProvider } from "@/types";
 import { useProjectStore } from "@/lib/store/project-store";
 import { SeverityBadge } from "./SeverityBadge";
 import { EvidenceCard } from "./EvidenceCard";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
@@ -29,8 +30,52 @@ function FindingRow({ finding, projectId, auditId }: FindingRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState(finding.notes || "");
+  const [loadingAI, setLoadingAI] = useState(false);
 
-  const { toggleFindingChecked, updateFindingNote } = useProjectStore();
+  const { toggleFindingChecked, updateFindingNote, updateFindingAiExplanation, settings } = useProjectStore();
+
+  const handleAIExplain = async () => {
+    const provider = (
+      settings.defaultProvider ||
+      (Object.entries(settings.aiProviders).find(([, v]) => v.validated)?.[0] as AIProvider | undefined)
+    );
+    if (!provider) {
+      toast.error("Налаштуйте AI-провайдер у Налаштуваннях");
+      return;
+    }
+    const cfg = settings.aiProviders[provider];
+    if (!cfg?.apiKey) {
+      toast.error(`Немає API-ключа для ${cfg?.label ?? provider}`);
+      return;
+    }
+    setLoadingAI(true);
+    try {
+      const prompt = `You are an SEO expert. Analyze this finding and provide a concise 2-3 sentence explanation (in Ukrainian) of why it matters, its SEO impact, and a specific fix tip beyond the recommendation below.
+
+Rule: ${finding.ruleTitle}
+URL: ${finding.url}
+Page Type: ${finding.pageType}
+Severity: ${finding.severity}
+Evidence: ${JSON.stringify(finding.evidence)}
+Recommendation: ${finding.recommendation ?? ""}`;
+
+      const res = await fetch("/api/ai/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, provider, apiKey: cfg.apiKey, model: cfg.model }),
+      });
+      const data = await res.json() as { result?: unknown; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? "Помилка API");
+      const text = typeof data.result === "string"
+        ? data.result
+        : JSON.stringify(data.result);
+      updateFindingAiExplanation(projectId, auditId, finding.ruleId, finding.url, text);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI-аналіз не вдався");
+    } finally {
+      setLoadingAI(false);
+    }
+  };
 
   const handleToggle = () => {
     toggleFindingChecked(projectId, auditId, finding.ruleId, finding.url);
@@ -133,12 +178,39 @@ function FindingRow({ finding, projectId, auditId }: FindingRowProps) {
                 </div>
               )}
 
-              {finding.aiExplanation && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">AI-аналіз</p>
-                  <p className="text-sm text-muted-foreground">{finding.aiExplanation}</p>
+              {/* AI explanation */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">AI-аналіз</p>
+                  {!finding.aiExplanation && (
+                    <button
+                      onClick={handleAIExplain}
+                      disabled={loadingAI}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {loadingAI
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Sparkles className="h-3 w-3" />
+                      }
+                      {loadingAI ? "Аналізую..." : "Пояснити"}
+                    </button>
+                  )}
+                  {finding.aiExplanation && (
+                    <button
+                      onClick={handleAIExplain}
+                      disabled={loadingAI}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {loadingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      {loadingAI ? "Оновлюю..." : "Оновити"}
+                    </button>
+                  )}
                 </div>
-              )}
+                {finding.aiExplanation
+                  ? <p className="text-sm text-muted-foreground">{finding.aiExplanation}</p>
+                  : !loadingAI && <p className="text-xs text-muted-foreground italic">Натисніть «Пояснити» для AI-аналізу</p>
+                }
+              </div>
 
               <EvidenceCard evidence={finding.evidence} />
 
@@ -223,7 +295,28 @@ export function FindingsTable({ findings, projectId, auditId }: FindingsTablePro
         return acc;
       }, {} as Record<string, Finding[]>);
     }
-    // flat for url/rule grouping (simplified)
+    if (groupBy === "url") {
+      const acc: Record<string, Finding[]> = {};
+      for (const f of filtered) {
+        if (!acc[f.url]) acc[f.url] = [];
+        acc[f.url].push(f);
+      }
+      // Sort by number of findings descending
+      return Object.fromEntries(
+        Object.entries(acc).sort(([, a], [, b]) => b.length - a.length)
+      );
+    }
+    if (groupBy === "rule") {
+      const acc: Record<string, Finding[]> = {};
+      for (const f of filtered) {
+        const key = f.ruleTitle; // human-readable
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(f);
+      }
+      return Object.fromEntries(
+        Object.entries(acc).sort(([, a], [, b]) => b.length - a.length)
+      );
+    }
     return { all: filtered };
   }, [filtered, groupBy]);
 
@@ -291,6 +384,25 @@ export function FindingsTable({ findings, projectId, auditId }: FindingsTablePro
         </div>
       </div>
 
+      {/* GroupBy */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Групувати:</span>
+        {(["severity", "url", "rule"] as const).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setGroupBy(mode)}
+            className={cn(
+              "px-2 py-1 rounded-md border transition-colors",
+              groupBy === mode
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border hover:bg-accent"
+            )}
+          >
+            {mode === "severity" ? "Критичність" : mode === "url" ? "URL" : "Правило"}
+          </button>
+        ))}
+      </div>
+
       {/* Count */}
       <p className="text-sm text-muted-foreground">
         Показано {filtered.length} з {findings.length} проблем
@@ -340,7 +452,15 @@ function FindingGroup({
     all: "Всі проблеми",
   };
 
-  const label = SEVERITY_LABELS[group] || group;
+  // For URL groups — strip origin to show only path
+  const label = SEVERITY_LABELS[group] ?? (() => {
+    try {
+      const u = new URL(group);
+      return u.pathname + (u.search || "");
+    } catch {
+      return group;
+    }
+  })();
 
   return (
     <div>

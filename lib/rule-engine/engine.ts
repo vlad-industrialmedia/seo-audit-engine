@@ -254,7 +254,9 @@ export function sfRowToPagePassport(row: import("@/types").SFRow): PagePassport 
     },
     structuredData: {
       typesFound: [],
+      hasBreadcrumb: false,
     },
+    hreflang: [],
     inlinks: row.inlinks || row.uniqueInlinks,
     findings: [],
   };
@@ -316,7 +318,8 @@ export async function sfRowToPagePassportAsync(
     content: { wordCount: row.wordCount },
     images: [],
     links: { internalTotal: 0, externalTotal: 0, broken: 0, redirecting: 0 },
-    structuredData: { typesFound: [] },
+    structuredData: { typesFound: [], hasBreadcrumb: false },
+    hreflang: [],
     inlinks: (row.inlinks as number) || (row.uniqueInlinks as number),
     findings: [],
   };
