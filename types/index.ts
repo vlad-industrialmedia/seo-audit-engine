@@ -277,13 +277,34 @@ export interface SFRow {
   xRobotsTag?: string;
   wordCount?: number;
   textRatio?: number;
+  spellingErrors?: number;
+  grammarErrors?: number;
+  readability?: string;
+  fleschReadingEaseScore?: number;
   crawlDepth?: number;
+  folderDepth?: number;
+  responseTime?: number;
+  size?: number;
   inlinks?: number;
   uniqueInlinks?: number;
   outlinks?: number;
   uniqueOutlinks?: number;
+  externalOutlinks?: number;
   httpStatusCode?: number;
   redirectURL?: string;
+  redirectType?: string;
+  language?: string;
+  // GSC
+  clicks?: number;
+  impressions?: number;
+  ctr?: number;
+  position?: number;
+  // Performance (Lighthouse)
+  performanceScore?: number;
+  lcp?: number;
+  cls?: number;
+  tbt?: number;
+  fcp?: number;
   [key: string]: unknown;
 }
 
