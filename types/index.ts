@@ -457,13 +457,37 @@ export interface AnalyticsCheck {
   status: TechCheckStatus;
   hasGA4: boolean;
   hasGTM: boolean;
-  hasYandexMetrika: boolean;
+  hasGoogleAds: boolean;
+  hasMicrosoftClarity: boolean;
   note: string;
 }
 
 export interface CompressionCheck {
   status: TechCheckStatus;
   encoding: string | null; // "gzip" | "br" | null
+  note: string;
+}
+
+// ─── Hreflang check (from homepage HTML) ─────────────────────────────────────
+export interface HreflangCheck {
+  status: TechCheckStatus;
+  hasHreflang: boolean;
+  count: number;
+  languages: string[];        // e.g. ["uk", "en", "ru"]
+  hasXDefault: boolean;
+  selfLangMatches: boolean | null; // homepage lang attr matches a hreflang entry
+  note: string;
+}
+
+// ─── Page-level tech checks (from homepage HTML) ─────────────────────────────
+export interface PageTechCheck {
+  status: TechCheckStatus;
+  hasSelfCanonical: boolean;
+  canonicalUrl: string | null;
+  hasManifest: boolean;
+  hasAppleTouchIcon: boolean;
+  scriptCount: number;
+  hasMixedContent: boolean;   // http:// assets on https page
   note: string;
 }
 
@@ -568,6 +592,23 @@ export interface SFCrawlDepthCheck {
   note: string;
 }
 
+export interface SFH2Check {
+  status: TechCheckStatus;
+  total: number;
+  missing: number;        // pages with no H2
+  duplicateH1: number;    // pages sharing same H1 text as another page
+  note: string;
+}
+
+export interface SFResponseTimeCheck {
+  status: TechCheckStatus;
+  total: number;
+  avgMs: number | null;
+  slowPages: number;      // > 2000ms
+  verySlowPages: number;  // > 4000ms
+  note: string;
+}
+
 export interface SFAnalysis {
   httpStatus: SFHttpStatusCheck;
   canonical: SFCanonicalCheck;
@@ -575,9 +616,11 @@ export interface SFAnalysis {
   titles: SFTitleCheck;
   descriptions: SFDescriptionCheck;
   h1s: SFH1Check;
+  h2s: SFH2Check;
   content: SFContentCheck;
   urlStructure: SFUrlCheck;
   crawlDepth: SFCrawlDepthCheck;
+  responseTimes: SFResponseTimeCheck;
 }
 
 export interface TechAuditResult {
@@ -594,6 +637,8 @@ export interface TechAuditResult {
   analytics?: AnalyticsCheck;
   compression?: CompressionCheck;
   serverInfo?: ServerInfoCheck;
+  hreflang?: HreflangCheck;
+  pageTech?: PageTechCheck;
   error?: string;
 }
 

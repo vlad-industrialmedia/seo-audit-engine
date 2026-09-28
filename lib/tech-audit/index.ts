@@ -13,6 +13,8 @@ import type {
   AnalyticsCheck,
   CompressionCheck,
   ServerInfoCheck,
+  HreflangCheck,
+  PageTechCheck,
 } from "@/types";
 
 const BOT_UA =
@@ -598,29 +600,156 @@ function checkSecurityHeadersFromHeaders(headers: Headers): SecurityHeadersCheck
 
 // ─── Analytics check ──────────────────────────────────────────────────────────
 function checkAnalyticsFromHtml(html: string): AnalyticsCheck {
-  const hasGA4 = /gtag\s*\(\s*["']config["']|G-[A-Z0-9]{6,}/i.test(html) ||
+  const hasGA4 = /gtag\s*\(\s*["']config["'].*?["']G-[A-Z0-9]/i.test(html) ||
+    /G-[A-Z0-9]{6,}/i.test(html) ||
     /google-analytics\.com\/g\/collect/i.test(html);
   const hasGTM = /googletagmanager\.com\/gtm\.js/i.test(html) ||
     /GTM-[A-Z0-9]{4,}/i.test(html);
-  const hasYandexMetrika = /mc\.yandex\.ru\/metrika/i.test(html) ||
-    /ym\s*\(\s*\d+\s*,\s*["']init["']/i.test(html);
+  const hasGoogleAds = /AW-[0-9]{7,}/i.test(html) ||
+    /gtag\s*\(\s*["']config["'].*?["']AW-/i.test(html) ||
+    /google_ads_conversion_id/i.test(html);
+  const hasMicrosoftClarity = /clarity\.ms\/tag/i.test(html) ||
+    /microsoft\.com\/clarity/i.test(html) ||
+    /window\.clarity\s*=/.test(html);
 
-  const found = hasGA4 || hasGTM || hasYandexMetrika;
+  const found = hasGA4 || hasGTM;
   let status: AnalyticsCheck["status"] = "ok";
   const detected: string[] = [];
-  if (hasGA4) detected.push("Google Analytics 4");
-  if (hasGTM) detected.push("Google Tag Manager");
-  if (hasYandexMetrika) detected.push("Яндекс.Метрика");
+  if (hasGA4) detected.push("GA4");
+  if (hasGTM) detected.push("GTM");
+  if (hasGoogleAds) detected.push("Google Ads");
+  if (hasMicrosoftClarity) detected.push("MS Clarity");
 
   let note = "";
   if (!found) {
     status = "issue";
-    note = "Системи аналітики не виявлено. Перевірте наявність GA4 або GTM.";
+    note = "GA4 / GTM не виявлено. Перевірте встановлення Google Analytics.";
   } else {
     note = `Виявлено: ${detected.join(", ")}. ✅`;
   }
 
-  return { status, hasGA4, hasGTM, hasYandexMetrika, note };
+  return { status, hasGA4, hasGTM, hasGoogleAds, hasMicrosoftClarity, note };
+}
+
+// ─── Hreflang check ───────────────────────────────────────────────────────────
+function checkHreflangFromHtml(html: string): HreflangCheck {
+  // Match <link rel="alternate" hreflang="..." href="...">
+  const tagRegex = /<link[^>]+hreflang=["']([^"']+)["'][^>]*href=["']([^"']+)["']|<link[^>]+href=["']([^"']+)["'][^>]*hreflang=["']([^"']+)["']/gi;
+  const entries: Array<{ lang: string; url: string }> = [];
+
+  let m: RegExpExecArray | null;
+  while ((m = tagRegex.exec(html)) !== null) {
+    const lang = (m[1] || m[4] || "").toLowerCase().trim();
+    const url = (m[2] || m[3] || "").trim();
+    if (lang && url) entries.push({ lang, url });
+  }
+
+  const count = entries.length;
+  const hasHreflang = count > 0;
+  const hasXDefault = entries.some((e) => e.lang === "x-default");
+  const languages = Array.from(new Set(entries.map((e) => e.lang).filter((l) => l !== "x-default")));
+
+  // Check lang attr on <html> tag vs hreflang entries
+  const langAttrMatch = html.match(/<html[^>]+lang=["']([^"']+)["']/i);
+  const pageLang = langAttrMatch ? langAttrMatch[1].toLowerCase().split("-")[0] : null;
+  const selfLangMatches = pageLang
+    ? languages.some((l) => l.startsWith(pageLang))
+    : null;
+
+  let status: HreflangCheck["status"] = "ok";
+  const parts: string[] = [];
+
+  if (!hasHreflang) {
+    status = "unknown";
+    parts.push("Hreflang теги відсутні. Якщо сайт однієї мови — норма. Для мультимовних сайтів — необхідно.");
+  } else {
+    parts.push(`Hreflang: ${count} тегів (${languages.join(", ")}).`);
+    if (!hasXDefault) {
+      if (status === "ok") status = "issue";
+      parts.push("⚠️ Відсутній x-default hreflang.");
+    } else {
+      parts.push("x-default ✅");
+    }
+    if (selfLangMatches === false) {
+      if (status === "ok") status = "issue";
+      parts.push(`⚠️ Мова HTML (${pageLang}) не збігається з hreflang записами.`);
+    }
+  }
+
+  return { status, hasHreflang, count, languages, hasXDefault, selfLangMatches, note: parts.join(" ") };
+}
+
+// ─── Page-level tech check (canonical, manifest, scripts, mixed content) ──────
+function checkPageTechFromHtml(html: string, domain: string): PageTechCheck {
+  // Self-canonical
+  const canonicalMatch = html.match(/<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']|<link[^>]+href=["']([^"']+)["'][^>]*rel=["']canonical["']/i);
+  const canonicalUrl = canonicalMatch ? (canonicalMatch[1] || canonicalMatch[2] || null) : null;
+
+  let hasSelfCanonical = false;
+  if (canonicalUrl) {
+    try {
+      const parsed = new URL(canonicalUrl);
+      const canonicalHost = parsed.hostname.replace(/^www\./, "");
+      const domainBare = domain.replace(/^www\./, "");
+      // Self-canonical if same domain + root path or no path
+      hasSelfCanonical = canonicalHost === domainBare && (parsed.pathname === "/" || parsed.pathname === "");
+    } catch {
+      hasSelfCanonical = false;
+    }
+  }
+
+  // PWA manifest
+  const hasManifest = /<link[^>]+rel=["'][^"']*manifest[^"']*["']/i.test(html);
+  // Apple touch icon
+  const hasAppleTouchIcon = /<link[^>]+rel=["'][^"']*apple-touch-icon[^"']*["']/i.test(html);
+
+  // Script count (all <script> tags except inline noscript)
+  const scriptTags = html.match(/<script[\s>]/gi) ?? [];
+  const scriptCount = scriptTags.length;
+
+  // Mixed content: http:// refs to images/scripts/stylesheets in HTTPS page
+  const mixedContentPattern = /(?:src|href)=["']http:\/\/(?!localhost)[^"']+["']/gi;
+  const mixedMatches = html.match(mixedContentPattern) ?? [];
+  const hasMixedContent = mixedMatches.length > 0;
+
+  let status: PageTechCheck["status"] = "ok";
+  const parts: string[] = [];
+
+  if (!canonicalUrl) {
+    status = "issue";
+    parts.push("⚠️ Canonical тег на головній відсутній.");
+  } else if (!hasSelfCanonical) {
+    status = "issue";
+    parts.push(`⚠️ Canonical вказує на іншу URL: ${canonicalUrl.slice(0, 80)}.`);
+  } else {
+    parts.push("Self-canonical ✅");
+  }
+
+  if (hasMixedContent) {
+    if (status === "ok") status = "issue";
+    parts.push(`⚠️ Mixed content: ${mixedMatches.length} HTTP-ресурсів на HTTPS сторінці.`);
+  }
+
+  if (scriptCount > 25) {
+    if (status === "ok") status = "needs_attention";
+    parts.push(`⚠️ ${scriptCount} <script> тегів на сторінці (норма < 20).`);
+  } else {
+    parts.push(`Скриптів: ${scriptCount}.`);
+  }
+
+  if (hasManifest) parts.push("PWA manifest ✅");
+  if (hasAppleTouchIcon) parts.push("Apple touch icon ✅");
+
+  return {
+    status,
+    hasSelfCanonical,
+    canonicalUrl,
+    hasManifest,
+    hasAppleTouchIcon,
+    scriptCount,
+    hasMixedContent,
+    note: parts.join(" "),
+  };
 }
 
 // ─── Compression check ────────────────────────────────────────────────────────
@@ -687,7 +816,7 @@ async function checkServerInfo(domain: string, html: string, headers: Headers, t
   return { status, server, cdn, cacheControl, ttfbMs, hasViewportMeta, hasLangAttr, hasFavicon, note: parts.join(" ") };
 }
 
-// ─── Combined homepage check (structured data + OG + security + analytics + compression + serverInfo) ─
+// ─── Combined homepage check ──────────────────────────────────────────────────
 async function checkHomepage(domain: string): Promise<{
   structuredData: StructuredDataCheck;
   openGraph: OpenGraphCheck;
@@ -695,6 +824,8 @@ async function checkHomepage(domain: string): Promise<{
   analytics: AnalyticsCheck;
   compression: CompressionCheck;
   serverInfo: ServerInfoCheck;
+  hreflang: HreflangCheck;
+  pageTech: PageTechCheck;
 }> {
   const url = `https://${domain}/`;
   try {
@@ -716,6 +847,8 @@ async function checkHomepage(domain: string): Promise<{
       analytics: checkAnalyticsFromHtml(html),
       compression: checkCompressionFromHeaders(headers),
       serverInfo: await checkServerInfo(domain, html, headers, ttfbMs),
+      hreflang: checkHreflangFromHtml(html),
+      pageTech: checkPageTechFromHtml(html, domain),
     };
   } catch (e) {
     const errMsg = `Не вдалось завантажити головну сторінку: ${(e as Error).message}`;
@@ -724,9 +857,11 @@ async function checkHomepage(domain: string): Promise<{
       structuredData: { ...unknown, found: false, types: [], hasJsonLd: false, hasMicrodata: false },
       openGraph: { ...unknown, hasOgTitle: false, hasOgDescription: false, hasOgImage: false, hasTwitterCard: false },
       securityHeaders: { ...unknown, hsts: false, xFrameOptions: false, xContentTypeOptions: false, csp: false },
-      analytics: { ...unknown, hasGA4: false, hasGTM: false, hasYandexMetrika: false },
+      analytics: { ...unknown, hasGA4: false, hasGTM: false, hasGoogleAds: false, hasMicrosoftClarity: false },
       compression: { ...unknown, encoding: null },
       serverInfo: { ...unknown, server: null, cdn: null, cacheControl: null, ttfbMs: null, hasViewportMeta: false, hasLangAttr: false, hasFavicon: false },
+      hreflang: { ...unknown, hasHreflang: false, count: 0, languages: [], hasXDefault: false, selfLangMatches: null },
+      pageTech: { ...unknown, hasSelfCanonical: false, canonicalUrl: null, hasManifest: false, hasAppleTouchIcon: false, scriptCount: 0, hasMixedContent: false },
     };
   }
 }
@@ -772,5 +907,7 @@ export async function runTechAudit(
     analytics: homepageChecks.analytics,
     compression: homepageChecks.compression,
     serverInfo: homepageChecks.serverInfo,
+    hreflang: homepageChecks.hreflang,
+    pageTech: homepageChecks.pageTech,
   };
 }

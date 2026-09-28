@@ -11,6 +11,8 @@ import type {
   AnalyticsCheck,
   CompressionCheck,
   SFAnalysis,
+  HreflangCheck,
+  PageTechCheck,
 } from "@/types";
 import { analyzeSFData } from "@/lib/tech-audit/sf-analysis";
 
@@ -248,6 +250,59 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               <CheckRow title="Стиснення (Gzip / Brotli)" status={result.compression.status} note={result.compression.note} />
             )}
 
+            {/* Hreflang */}
+            {result?.hreflang && (
+              <CheckRow title="Hreflang (мовні версії)" status={result.hreflang.status} note={result.hreflang.note}>
+                {result.hreflang.hasHreflang && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    <div className="grid grid-cols-3 gap-2 w-full">
+                      <StatPill label="Мовних тегів" value={result.hreflang.count} />
+                      <StatPill label="Мов" value={result.hreflang.languages.length} />
+                      <StatPill label="x-default" value={result.hreflang.hasXDefault ? "✓" : "✗"} warn={!result.hreflang.hasXDefault} />
+                    </div>
+                    {result.hreflang.languages.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {result.hreflang.languages.slice(0, 10).map((lang) => (
+                          <span key={lang} className="text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded font-mono">
+                            {lang}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CheckRow>
+            )}
+
+            {/* Page Tech */}
+            {result?.pageTech && (
+              <CheckRow title="Технічні теги сторінки" status={result.pageTech.status} note={result.pageTech.note}>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {[
+                    { ok: result.pageTech.hasSelfCanonical, label: "self-canonical" },
+                    { ok: result.pageTech.hasManifest, label: "manifest.json" },
+                    { ok: result.pageTech.hasAppleTouchIcon, label: "apple-touch-icon" },
+                    { ok: !result.pageTech.hasMixedContent, label: "без mixed-content" },
+                  ].map(({ ok, label }) => (
+                    <span key={label} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                      ok
+                        ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                        : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                    }`}>
+                      {ok ? "✓" : "✗"} {label}
+                    </span>
+                  ))}
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                    result.pageTech.scriptCount > 25
+                      ? "bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800"
+                      : "bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700"
+                  }`}>
+                    📜 {result.pageTech.scriptCount} скриптів{result.pageTech.scriptCount > 25 ? " ⚠" : ""}
+                  </span>
+                </div>
+              </CheckRow>
+            )}
+
             {/* Security Headers */}
             {result?.securityHeaders && (
               <CheckRow title="Заголовки безпеки" status={result.securityHeaders.status} note={result.securityHeaders.note}>
@@ -415,6 +470,21 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               </CheckRow>
             )}
 
+            {/* SF: Response Times */}
+            {sfAnalysis && (
+              <CheckRow title="[SF] Час відповіді сервера" status={sfAnalysis.responseTimes.status} note={sfAnalysis.responseTimes.note}>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <StatPill
+                    label="Середній (мс)"
+                    value={sfAnalysis.responseTimes.avgMs !== null ? sfAnalysis.responseTimes.avgMs : "н/д"}
+                    warn={(sfAnalysis.responseTimes.avgMs ?? 0) > 2000}
+                  />
+                  <StatPill label="> 2 с (повільні)" value={sfAnalysis.responseTimes.slowPages} warn={sfAnalysis.responseTimes.slowPages > 0} />
+                  <StatPill label="> 4 с (критичні)" value={sfAnalysis.responseTimes.verySlowPages} warn={sfAnalysis.responseTimes.verySlowPages > 0} />
+                </div>
+              </CheckRow>
+            )}
+
             {/* ═══ SECTION: ON-PAGE SEO (from SF) ═══ */}
             {sfAnalysis && <SectionDivider label="On-Page SEO (Screaming Frog)" />}
 
@@ -461,6 +531,17 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                   <StatPill label="Всього" value={sfAnalysis.h1s.total.toLocaleString("uk")} />
                   <StatPill label="Без H1" value={sfAnalysis.h1s.missing} warn={sfAnalysis.h1s.missing > 0} />
                   <StatPill label="Кілька H1" value={sfAnalysis.h1s.multiple} warn={sfAnalysis.h1s.multiple > 0} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* SF: H2 */}
+            {sfAnalysis && (
+              <CheckRow title="[SF] H2 заголовки" status={sfAnalysis.h2s.status} note={sfAnalysis.h2s.note}>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <StatPill label="Всього" value={sfAnalysis.h2s.total.toLocaleString("uk")} />
+                  <StatPill label="Без H2" value={sfAnalysis.h2s.missing} warn={sfAnalysis.h2s.missing > 0} />
+                  <StatPill label="Дубл. H1 (крос-сторінки)" value={sfAnalysis.h2s.duplicateH1} warn={sfAnalysis.h2s.duplicateH1 > 0} />
                 </div>
               </CheckRow>
             )}
@@ -570,18 +651,21 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Analytics */}
             {result?.analytics && (
-              <CheckRow title="Системи аналітики" status={result.analytics.status} note={result.analytics.note}>
+              <CheckRow title="Системи аналітики та реклами" status={result.analytics.status} note={result.analytics.note}>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {[
-                    { key: "hasGA4", label: "GA4" },
-                    { key: "hasGTM", label: "GTM" },
-                    { key: "hasYandexMetrika", label: "Яндекс.Метрика" },
-                  ].map(({ key, label }) => {
+                    { key: "hasGA4", label: "GA4", primary: true },
+                    { key: "hasGTM", label: "GTM", primary: true },
+                    { key: "hasGoogleAds", label: "Google Ads", primary: false },
+                    { key: "hasMicrosoftClarity", label: "MS Clarity", primary: false },
+                  ].map(({ key, label, primary }) => {
                     const val = result.analytics![key as keyof AnalyticsCheck] as boolean;
                     return (
                       <span key={key} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
                         val
-                          ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                          ? primary
+                            ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                            : "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800"
                           : "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700"
                       }`}>
                         {val ? "✓" : "—"} {label}
@@ -605,32 +689,38 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
             <span>✦ HTTPS і HTTP→HTTPS редирект</span>
             <span>✦ TTFB, сервер, CDN, кеш</span>
             <span>✦ Заголовки безпеки (HSTS, CSP…)</span>
-            <span>✦ Viewport, lang, favicon</span>
+            <span>✦ Viewport, lang attr, favicon</span>
             <span>✦ Стиснення (Gzip / Brotli)</span>
-            <span>✦ robots.txt + аналіз Disallow</span>
+            <span>✦ robots.txt + аналіз Disallow правил</span>
             <span>✦ Sitemap.xml (URL-кількість, статуси)</span>
+            <span>✦ Hreflang (мовні версії, x-default)</span>
+            <span>✦ Self-canonical, PWA manifest, mixed-content</span>
             <span>✦ Open Graph / Twitter Card</span>
             <span>✦ Schema.org мікророзмітка</span>
-            <span>✦ GA4 / GTM / Яндекс.Метрика</span>
+            <span>✦ GA4 / GTM / Google Ads / MS Clarity</span>
+            <span>✦ Кількість скриптів на сторінці</span>
             <span>✦ PageSpeed / CWV (опційно)</span>
+            <span></span>
             {sfResult && (
               <>
-                <span>✦ [SF] HTTP статус-коди</span>
-                <span>✦ [SF] Canonical теги</span>
+                <span>✦ [SF] HTTP статус-коди (200/3xx/4xx/5xx)</span>
+                <span>✦ [SF] Canonical теги (self / cross)</span>
                 <span>✦ [SF] Індексація (noindex, robots)</span>
                 <span>✦ [SF] Title теги (дублі, довжина)</span>
-                <span>✦ [SF] Meta description</span>
-                <span>✦ [SF] H1 (відсутні, кілька)</span>
-                <span>✦ [SF] Тонкий контент / сироти</span>
+                <span>✦ [SF] Meta description (дублі, довжина)</span>
+                <span>✦ [SF] H1 (відсутні, кілька H1)</span>
+                <span>✦ [SF] H2 (відсутні, дублі H1 між сторінками)</span>
+                <span>✦ [SF] Час відповіді сервера (TTFB)</span>
+                <span>✦ [SF] Тонкий контент / сторінки-сироти</span>
                 <span>✦ [SF] Near-duplicate сторінки</span>
-                <span>✦ [SF] Структура URL</span>
+                <span>✦ [SF] Структура URL (довжина, параметри)</span>
                 <span>✦ [SF] Глибина краулінгу</span>
               </>
             )}
           </div>
           {!sfResult && (
             <p className="mt-2 text-blue-500 dark:text-blue-400">
-              💡 Завантажте CSV зі Screaming Frog для розширеного аналізу ще +9 параметрів
+              💡 Завантажте CSV зі Screaming Frog для розширеного аналізу ще +12 параметрів
             </p>
           )}
         </div>

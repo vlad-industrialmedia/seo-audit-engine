@@ -7,9 +7,11 @@ import type {
   SFTitleCheck,
   SFDescriptionCheck,
   SFH1Check,
+  SFH2Check,
   SFContentCheck,
   SFUrlCheck,
   SFCrawlDepthCheck,
+  SFResponseTimeCheck,
   TechCheckStatus,
 } from "@/types";
 
@@ -29,28 +31,32 @@ export function analyzeSFData(rows: SFRow[]): SFAnalysis {
 
   if (total === 0) {
     return {
-      httpStatus:   { ...EMPTY_STATUS, total: 0, ok200: 0, redirect3xx: 0, error4xx: 0, error5xx: 0 },
-      canonical:    { ...EMPTY_STATUS, total: 0, withCanonical: 0, withoutCanonical: 0, selfCanonical: 0, crossCanonical: 0 },
-      indexability: { ...EMPTY_STATUS, total: 0, indexable: 0, nonIndexable: 0, noindexMeta: 0, noindexHeader: 0, byRobots: 0, byCanonical: 0 },
-      titles:       { ...EMPTY_STATUS, total: 0, missing: 0, tooShort: 0, tooLong: 0, duplicates: 0 },
-      descriptions: { ...EMPTY_STATUS, total: 0, missing: 0, tooShort: 0, tooLong: 0, duplicates: 0 },
-      h1s:          { ...EMPTY_STATUS, total: 0, missing: 0, multiple: 0 },
-      content:      { ...EMPTY_STATUS, total: 0, thinContent: 0, orphanPages: 0, nearDuplicates: 0 },
-      urlStructure: { ...EMPTY_STATUS, total: 0, tooLong: 0, withParameters: 0, deepUrls: 0 },
-      crawlDepth:   { ...EMPTY_STATUS, avgDepth: 0, maxDepth: 0, deepPages: 0, distribution: {} },
+      httpStatus:    { ...EMPTY_STATUS, total: 0, ok200: 0, redirect3xx: 0, error4xx: 0, error5xx: 0 },
+      canonical:     { ...EMPTY_STATUS, total: 0, withCanonical: 0, withoutCanonical: 0, selfCanonical: 0, crossCanonical: 0 },
+      indexability:  { ...EMPTY_STATUS, total: 0, indexable: 0, nonIndexable: 0, noindexMeta: 0, noindexHeader: 0, byRobots: 0, byCanonical: 0 },
+      titles:        { ...EMPTY_STATUS, total: 0, missing: 0, tooShort: 0, tooLong: 0, duplicates: 0 },
+      descriptions:  { ...EMPTY_STATUS, total: 0, missing: 0, tooShort: 0, tooLong: 0, duplicates: 0 },
+      h1s:           { ...EMPTY_STATUS, total: 0, missing: 0, multiple: 0 },
+      h2s:           { ...EMPTY_STATUS, total: 0, missing: 0, duplicateH1: 0 },
+      content:       { ...EMPTY_STATUS, total: 0, thinContent: 0, orphanPages: 0, nearDuplicates: 0 },
+      urlStructure:  { ...EMPTY_STATUS, total: 0, tooLong: 0, withParameters: 0, deepUrls: 0 },
+      crawlDepth:    { ...EMPTY_STATUS, avgDepth: 0, maxDepth: 0, deepPages: 0, distribution: {} },
+      responseTimes: { ...EMPTY_STATUS, total: 0, avgMs: null, slowPages: 0, verySlowPages: 0 },
     };
   }
 
   return {
-    httpStatus:   sfHttpStatus(htmlRows, total),
-    canonical:    sfCanonical(htmlRows, total),
-    indexability: sfIndexability(htmlRows, total),
-    titles:       sfTitles(htmlRows, total),
-    descriptions: sfDescriptions(htmlRows, total),
-    h1s:          sfH1s(htmlRows, total),
-    content:      sfContent(htmlRows, total),
-    urlStructure: sfUrlStructure(htmlRows, total),
-    crawlDepth:   sfCrawlDepth(htmlRows, total),
+    httpStatus:    sfHttpStatus(htmlRows, total),
+    canonical:     sfCanonical(htmlRows, total),
+    indexability:  sfIndexability(htmlRows, total),
+    titles:        sfTitles(htmlRows, total),
+    descriptions:  sfDescriptions(htmlRows, total),
+    h1s:           sfH1s(htmlRows, total),
+    h2s:           sfH2s(htmlRows, total),
+    content:       sfContent(htmlRows, total),
+    urlStructure:  sfUrlStructure(htmlRows, total),
+    crawlDepth:    sfCrawlDepth(htmlRows, total),
+    responseTimes: sfResponseTimes(rows, total),
   };
 }
 
@@ -335,4 +341,93 @@ function sfCrawlDepth(rows: SFRow[], total: number): SFCrawlDepthCheck {
   else parts.push("Структура сайту плоска. ✅");
 
   return { status, avgDepth, maxDepth, deepPages, distribution, note: parts.join(" ") };
+}
+
+// ─── H2 tags ──────────────────────────────────────────────────────────────────
+function sfH2s(rows: SFRow[], total: number): SFH2Check {
+  let missing = 0;
+  const h1Seen = new Map<string, number>();
+
+  for (const r of rows) {
+    // SF exports h2_1 column; empty means no H2
+    const h2 = (r as Record<string, unknown>)["h2_1"];
+    if (!h2 || (typeof h2 === "string" && h2.trim().length === 0)) {
+      missing++;
+    }
+
+    // Track H1 texts to detect duplicates across pages
+    const h1 = (r.h1_1 ?? "").trim().toLowerCase();
+    if (h1) {
+      h1Seen.set(h1, (h1Seen.get(h1) ?? 0) + 1);
+    }
+  }
+
+  // Count pages that share an H1 with at least one other page
+  const duplicateH1 = Array.from(h1Seen.values())
+    .filter((count) => count > 1)
+    .reduce((sum, count) => sum + count, 0);
+
+  const missingPct = total > 0 ? Math.round((missing / total) * 100) : 0;
+  let status: TechCheckStatus = "ok";
+  const parts: string[] = [];
+
+  if (missingPct > 30) {
+    status = "error";
+    parts.push(`🔴 ${missing} (~${missingPct}%) сторінок без H2 заголовку.`);
+  } else if (missing > 0) {
+    status = "issue";
+    parts.push(`${missing} сторінок без H2.`);
+  }
+
+  if (duplicateH1 > 0) {
+    if (status === "ok") status = "issue";
+    parts.push(`${duplicateH1} сторінок мають однаковий H1 з іншими сторінками.`);
+  }
+
+  if (parts.length === 0) parts.push(`H2 присутній на всіх ${total.toLocaleString("uk")} сторінках. ✅`);
+
+  return { status, total, missing, duplicateH1, note: parts.join(" ") };
+}
+
+// ─── Response times ───────────────────────────────────────────────────────────
+function sfResponseTimes(rows: SFRow[], total: number): SFResponseTimeCheck {
+  const SLOW_MS = 2000;
+  const VERY_SLOW_MS = 4000;
+
+  let slowPages = 0, verySlowPages = 0, sumMs = 0, withTime = 0;
+
+  for (const r of rows) {
+    const ms = r.responseTime ?? 0;
+    if (ms > 0) {
+      sumMs += ms;
+      withTime++;
+      if (ms > VERY_SLOW_MS) verySlowPages++;
+      else if (ms > SLOW_MS) slowPages++;
+    }
+  }
+
+  const avgMs = withTime > 0 ? Math.round(sumMs / withTime) : null;
+  let status: TechCheckStatus = "ok";
+  const parts: string[] = [];
+
+  if (avgMs !== null) {
+    parts.push(`Середній час відповіді: ${avgMs} мс.`);
+  }
+
+  if (verySlowPages > 0) {
+    status = "error";
+    parts.push(`🔴 ${verySlowPages} сторінок відповідають > ${VERY_SLOW_MS / 1000} с.`);
+  }
+  if (slowPages > 0) {
+    if (status === "ok") status = "issue";
+    parts.push(`🟠 ${slowPages} сторінок відповідають > ${SLOW_MS / 1000} с.`);
+  }
+  if (parts.length <= 1 && avgMs !== null && avgMs <= SLOW_MS) {
+    parts.push("Час відповіді в нормі. ✅");
+  }
+  if (withTime === 0) {
+    parts.push("Дані часу відповіді відсутні в експорті SF.");
+  }
+
+  return { status, total, avgMs, slowPages, verySlowPages, note: parts.join(" ") };
 }
