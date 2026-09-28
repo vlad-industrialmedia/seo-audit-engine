@@ -212,13 +212,31 @@ export async function POST(req: Request) {
     const prompt = buildPrompt(body);
     const raw = await callAI(prompt, provider, apiKey, model);
 
-    // Parse JSON
+    // Розбір JSON з кількома стратегіями відновлення
     let parsed: unknown;
-    try {
-      // Strip markdown code fences if present
-      const clean = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
-      parsed = JSON.parse(clean);
-    } catch {
+
+    // Спроба 1: очищаємо markdown-фенси і парсимо напряму
+    const clean = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
+    try { parsed = JSON.parse(clean); } catch { /* переходимо до наступної спроби */ }
+
+    // Спроба 2: витягуємо перший JSON-об'єкт регексом (ігноруємо текст до/після)
+    if (!parsed) {
+      const objMatch = raw.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        try { parsed = JSON.parse(objMatch[0]); } catch { /* переходимо до наступної спроби */ }
+      }
+    }
+
+    // Спроба 3: витягуємо JSON-масив (якщо модель повернула масив)
+    if (!parsed) {
+      const arrMatch = raw.match(/\[[\s\S]*\]/);
+      if (arrMatch) {
+        try { parsed = JSON.parse(arrMatch[0]); } catch { /* переходимо до помилки */ }
+      }
+    }
+
+    if (!parsed) {
+      console.error("[analyze-by-type] Не вдалось розпарсити JSON. Відповідь AI:", raw.slice(0, 800));
       return NextResponse.json(
         { error: "AI повернув не валідний JSON", raw: raw.slice(0, 500) },
         { status: 422 }

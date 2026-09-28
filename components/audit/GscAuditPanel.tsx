@@ -426,6 +426,15 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
   const [dateRange, setDateRange] = useState<28 | 90 | 180>(90);
   const [clientIdInput, setClientIdInput] = useState(settings.googleOAuth?.clientId ?? "");
   const [showClientIdHelp, setShowClientIdHelp] = useState(false);
+  // Поточний origin для показу у підказці (щоб юзер знав що саме додати в Google Cloud)
+  const [currentOrigin, setCurrentOrigin] = useState("http://localhost:3000");
+
+  useEffect(() => {
+    // Отримуємо реальний origin в браузері
+    if (typeof window !== "undefined") {
+      setCurrentOrigin(window.location.origin);
+    }
+  }, []);
 
   const clientId = settings.googleOAuth?.clientId ?? "";
 
@@ -663,10 +672,32 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
                   <li>Перейдіть в <strong>APIs &amp; Services → Credentials</strong></li>
                   <li>Натисніть <strong>+ Create Credentials → OAuth 2.0 Client ID</strong></li>
                   <li>Тип: <strong>Web application</strong></li>
-                  <li>В &quot;Authorized JavaScript origins&quot; додайте: <code className="bg-gray-100 px-1 rounded">http://localhost:3000</code></li>
+                  <li>
+                    В &quot;Authorized JavaScript origins&quot; додайте ваш поточний origin:
+                    <div className="mt-1 flex items-center gap-2">
+                      <code className="bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 rounded font-mono text-xs">
+                        {currentOrigin}
+                      </code>
+                      <button
+                        className="text-blue-600 hover:text-blue-800 underline"
+                        onClick={() => navigator.clipboard.writeText(currentOrigin)}
+                        type="button"
+                      >
+                        копіювати
+                      </button>
+                    </div>
+                    {currentOrigin !== "http://localhost:3000" && (
+                      <div className="mt-1 text-gray-500">
+                        Також додайте <code className="bg-gray-100 px-1 rounded">http://localhost:3000</code> для локальної розробки
+                      </div>
+                    )}
+                  </li>
                   <li>Скопіюйте Client ID (вигляд: <code className="bg-gray-100 px-1 rounded">1234...apps.googleusercontent.com</code>)</li>
                   <li>Увімкніть APIs: <strong>Google Search Console API</strong> та <strong>Google Analytics Data API</strong></li>
                 </ol>
+                <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-800">
+                  ⚠️ Якщо Google блокує вхід з помилкою &quot;не відповідає правилам OAuth 2.0&quot; — переконайтесь, що в Credentials додано саме <strong>{currentOrigin}</strong> (без слешу в кінці)
+                </div>
               </div>
             )}
           </div>
