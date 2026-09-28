@@ -15,6 +15,7 @@ import type {
   ServerInfoCheck,
   HreflangCheck,
   PageTechCheck,
+  Custom404Check,
 } from "@/types";
 
 const BOT_UA =
@@ -866,6 +867,90 @@ async function checkHomepage(domain: string): Promise<{
   }
 }
 
+// ─── Перевірка кастомної 404-сторінки ────────────────────────────────────────
+
+/** Перевіряє, чи має сайт кастомну branded 404-сторінку.
+ *  Запитує завідомо неіснуючий URL та аналізує відповідь. */
+async function checkCustom404(domain: string): Promise<Custom404Check> {
+  // Унікальний URL, який точно не існує
+  const testPath = `/seo-audit-404-check-${Date.now()}`;
+  const testUrl = `https://${domain}${testPath}`;
+  const result: Custom404Check = {
+    status: "unknown",
+    returns404: false,
+    hasBrandedPage: false,
+    redirectsToHome: false,
+    checkedUrl: testUrl,
+    note: "",
+  };
+
+  try {
+    const res = await fetch(testUrl, {
+      headers: { "User-Agent": BOT_UA, Accept: "text/html" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const finalUrl = res.url;
+
+    // Перевіряємо, чи стався редирект на головну
+    const homepageUrl = `https://${domain}/`;
+    const isRedirectToHome =
+      finalUrl === homepageUrl ||
+      finalUrl === `https://${domain}` ||
+      finalUrl.replace(/\/$/, "") === `https://${domain}`;
+
+    if (isRedirectToHome) {
+      result.returns404 = false;
+      result.redirectsToHome = true;
+      result.hasBrandedPage = false;
+      result.status = "warning";
+      result.note = "Неіснуючі сторінки редиректять на головну замість повернення 404 — це шкодить індексації";
+      return result;
+    }
+
+    result.returns404 = res.status === 404;
+
+    if (res.status === 200 && !isRedirectToHome) {
+      // Повертає 200 для неіснуючої сторінки — soft 404
+      result.status = "error";
+      result.hasBrandedPage = false;
+      result.note = `Soft 404: сервер повертає HTTP 200 для неіснуючого URL (${testUrl})`;
+      return result;
+    }
+
+    if (res.status === 404) {
+      // Аналізуємо вміст 404-сторінки
+      const html = await res.text();
+      const bodyContent = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      // Branded 404: сторінка має достатньо контенту (мінімум 100 слів або містить навігацію)
+      const wordCount = bodyContent.split(/\s+/).filter((w) => w.length > 1).length;
+      const hasNavigation = /<nav\b|<header\b/i.test(html);
+      const hasBrandedContent = wordCount >= 80 || hasNavigation;
+
+      result.hasBrandedPage = hasBrandedContent;
+      result.status = hasBrandedContent ? "ok" : "warning";
+      result.note = hasBrandedContent
+        ? `Кастомна 404-сторінка знайдена (~${wordCount} слів, є навігація: ${hasNavigation})`
+        : `404 повертається коректно, але сторінка порожня або шаблонна (~${wordCount} слів)`;
+    } else {
+      // Інший статус (301, 302, 410 тощо)
+      result.status = "warning";
+      result.note = `Неочікуваний статус ${res.status} для неіснуючого URL`;
+    }
+  } catch (e) {
+    result.status = "unknown";
+    result.note = `Не вдалось перевірити 404: ${(e as Error).message}`;
+  }
+
+  return result;
+}
+
 // ─── Run full tech audit ──────────────────────────────────────────────────────
 export async function runTechAudit(
   domain: string,
@@ -879,11 +964,12 @@ export async function runTechAudit(
   const bare = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
   const sfUrls = options.sfUrls ?? [];
 
-  const [mirror, https, robots, homepageChecks] = await Promise.all([
+  const [mirror, https, robots, homepageChecks, custom404] = await Promise.all([
     checkMainMirror(bare),
     checkHttps(bare),
     checkRobotsTxt(bare, sfUrls),
     checkHomepage(bare),
+    checkCustom404(bare),
   ]);
 
   const sitemap = await checkSitemap(bare, robots.sitemapUrls, options.sfTotalUrls);
@@ -909,5 +995,6 @@ export async function runTechAudit(
     serverInfo: homepageChecks.serverInfo,
     hreflang: homepageChecks.hreflang,
     pageTech: homepageChecks.pageTech,
+    custom404,
   };
 }

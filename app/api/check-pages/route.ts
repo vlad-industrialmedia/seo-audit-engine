@@ -125,6 +125,74 @@ function extractSchemaTypes(html: string): string[] {
   return Array.from(new Set(types));
 }
 
+// ─── Lazy loading аналіз ─────────────────────────────────────────────────────
+
+/** Повертає частку зображень з атрибутом loading="lazy" (від 0 до 1). */
+function analyzeLazyLoading(html: string): number {
+  const imgTags = Array.from(html.matchAll(/<img\b[^>]*>/gi)).map((m) => m[0]);
+  if (imgTags.length === 0) return 1; // Немає зображень — вважаємо ок
+  const lazyCount = imgTags.filter((tag) => /\bloading\s*=\s*["']?lazy["']?/i.test(tag)).length;
+  return lazyCount / imgTags.length;
+}
+
+// ─── WebP / AVIF детекція ────────────────────────────────────────────────────
+
+/** Повертає true, якщо сторінка використовує WebP або AVIF зображення. */
+function detectWebPUsage(html: string): boolean {
+  // Перевіряємо <picture> з source type=image/webp або image/avif
+  if (/<source\b[^>]+type=["']image\/(webp|avif)["'][^>]*>/i.test(html)) return true;
+  // Перевіряємо srcset або src з .webp/.avif розширенням
+  if (/(?:src|srcset)=["'][^"']*\.(webp|avif)(?:\?[^"']*)?["']/i.test(html)) return true;
+  return false;
+}
+
+// ─── Cookie banner / GDPR детекція ──────────────────────────────────────────
+
+/** Повертає true, якщо виявлено ознаки cookie consent банера або GDPR. */
+function detectCookieBanner(html: string): boolean {
+  const lower = html.toLowerCase();
+
+  // Популярні cookie consent сервіси та їх ознаки
+  const signals = [
+    "cookiebot",
+    "onetrust",
+    "cookieconsent",
+    "cookie-consent",
+    "cookieinformation",
+    "cookie_notice",
+    "gdpr-cookie",
+    "cc-window",
+    "cookie-law-info",
+    "js-cookie-banner",
+    "cookie-banner",
+    "consent-banner",
+    "privacy-consent",
+    "data-cookieconsent",
+    "wp-gdpr",
+    "complianz",
+    // Загальні атрибути data-*
+    'data-cookiename',
+    'data-cookie-banner',
+  ];
+
+  for (const s of signals) {
+    if (lower.includes(s)) return true;
+  }
+
+  // Перевіряємо наявність типових текстових ознак cookie-повідомлень
+  const cookieTextPatterns = [
+    /we use cookies/i,
+    /cookie policy/i,
+    /accept cookies/i,
+    /gdpr/i,
+    /ми використовуємо cookies/i,
+    /використання cookies/i,
+    /погодитися з cookie/i,
+  ];
+
+  return cookieTextPatterns.some((p) => p.test(html));
+}
+
 function countLinks(html: string, domain: string): { internal: number; external: number } {
   const hrefs = Array.from(html.matchAll(/href=["']([^"']+)["']/gi)).map((m) => m[1]);
   let internal = 0, external = 0;
@@ -166,6 +234,10 @@ async function checkPage(url: string, pageType: string, domain: string): Promise
     externalLinksCount: 0,
     wordCount: 0,
     issues: [],
+    // Розширені поля
+    lazyLoadRatio: 0,
+    hasWebP: false,
+    hasCookieBanner: false,
   };
 
   try {
@@ -220,6 +292,17 @@ async function checkPage(url: string, pageType: string, domain: string): Promise
     // Word count from content area
     result.wordCount = estimateWordCount(contentArea);
 
+    // ─── Розширені перевірки ────────────────────────────────────────────────
+
+    // Lazy loading: аналіз усього HTML (включно з фоновими зображеннями поза content-area)
+    result.lazyLoadRatio = analyzeLazyLoading(html);
+
+    // WebP/AVIF: перевірка використання сучасних форматів
+    result.hasWebP = detectWebPUsage(html);
+
+    // Cookie banner: перевірка наявності GDPR-банера
+    result.hasCookieBanner = detectCookieBanner(html);
+
     // Issue detection
     if (result.imagesMissingAlt > 0) {
       issues.push(`${result.imagesMissingAlt} зображень без alt у контентній зоні`);
@@ -235,6 +318,17 @@ async function checkPage(url: string, pageType: string, domain: string): Promise
     }
     if (result.schemaTypes.length === 0) {
       issues.push("Відсутня мікророзмітка Schema.org");
+    }
+
+    // Lazy loading: якщо менше 50% зображень мають lazy — попередження
+    if (result.imagesTotal >= 3 && result.lazyLoadRatio < 0.5) {
+      const pct = Math.round(result.lazyLoadRatio * 100);
+      issues.push(`Lazy loading: лише ${pct}% зображень мають loading="lazy"`);
+    }
+
+    // WebP: відсутність сучасних форматів
+    if (result.imagesTotal > 0 && !result.hasWebP) {
+      issues.push("Зображення не використовують WebP/AVIF — можливе збільшення LCP");
     }
 
     result.issues = issues;
