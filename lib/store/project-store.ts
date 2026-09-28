@@ -28,6 +28,7 @@ interface ProjectStore {
   toggleFindingChecked: (projectId: string, auditId: string, ruleId: string, url: string) => void;
   updateFindingNote: (projectId: string, auditId: string, ruleId: string, url: string, note: string) => void;
   updateFindingAiExplanation: (projectId: string, auditId: string, ruleId: string, url: string, aiExplanation: string) => void;
+  updateFindingVerification: (projectId: string, auditId: string, ruleId: string, status: "verified" | "false_positive" | "unverified", note: string) => void;
 
   // Settings
   updateSettings: (updates: Partial<AppSettings>) => void;
@@ -212,6 +213,30 @@ export const useProjectStore = create<ProjectStore>()(
                           ...a,
                           findings: a.findings.map((f) =>
                             f.ruleId === ruleId && f.url === url ? { ...f, aiExplanation } : f
+                          ),
+                        }
+                      : a
+                  ),
+                }
+              : p
+          ),
+        }));
+      },
+
+      updateFindingVerification: (projectId, auditId, ruleId, status, note) => {
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  audits: p.audits.map((a) =>
+                    a.id === auditId
+                      ? {
+                          ...a,
+                          findings: a.findings.map((f) =>
+                            f.ruleId === ruleId
+                              ? { ...f, verificationStatus: status, verificationNote: note }
+                              : f
                           ),
                         }
                       : a

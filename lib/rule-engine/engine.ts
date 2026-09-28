@@ -325,7 +325,7 @@ export async function sfRowToPagePassportAsync(
   };
 }
 
-// ─── Aggregate findings — detect template-level issues ────────────────────────
+// ─── Aggregate findings — one entry per rule with all affected URLs ───────────
 export function aggregateFindings(allFindings: Finding[]): Finding[] {
   const grouped: Record<string, Finding[]> = {};
   for (const f of allFindings) {
@@ -335,16 +335,24 @@ export function aggregateFindings(allFindings: Finding[]): Finding[] {
 
   const result: Finding[] = [];
   for (const [, group] of Object.entries(grouped)) {
-    if (group.length === 1) {
-      result.push(group[0]);
-    } else {
-      // Multiple pages with same issue — could be template-level
-      const representative = { ...group[0], affectedCount: group.length };
-      result.push(representative);
-      // Also push individual findings (for detailed view)
-      result.push(...group.slice(1));
-    }
+    // Collect all affected URLs; deduplicate just in case
+    const seen = new Set<string>();
+    const affectedUrls = group.map((f) => f.url).filter((u) => { if (seen.has(u)) return false; seen.add(u); return true; });
+    const representative: Finding = {
+      ...group[0],
+      affectedCount: affectedUrls.length,
+      affectedUrls,
+    };
+    result.push(representative);
   }
+
+  // Sort by severity then affected count
+  const SEV_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  result.sort((a, b) => {
+    const sd = (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9);
+    if (sd !== 0) return sd;
+    return (b.affectedCount ?? 1) - (a.affectedCount ?? 1);
+  });
 
   return result;
 }

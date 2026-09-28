@@ -290,6 +290,9 @@ export const SEO_CORE_RULES: Rule[] = [
   },
 
   // ── STRUCTURED DATA ───────────────────────────────────────────────────────
+  // NOTE: These rules require live verification — Screaming Frog basic export
+  // does NOT crawl JS-rendered structured data. Enable only if using SF's
+  // "Structured Data" tab export, or rely on the built-in live verification.
   {
     id: "schema.missing",
     module: "structured_data",
@@ -303,7 +306,8 @@ export const SEO_CORE_RULES: Rule[] = [
     exceptions: [],
     evidence: ["structuredData"],
     recommendation: "Додайте відповідний тип Schema.org: Product для товарів, Article для блогу, Organization для головної, BreadcrumbList для всіх сторінок.",
-    enabled: true,
+    developerHint: "⚠️ Screaming Frog не аналізує JS-рендеровану схему. Використайте кнопку «Перевірити» для живої верифікації через реальний HTML сторінки.",
+    enabled: false, // Disabled: SF basic export cannot detect JS-rendered schema. Use live verification instead.
   },
   {
     id: "schema.breadcrumb.missing",
@@ -319,7 +323,8 @@ export const SEO_CORE_RULES: Rule[] = [
     ],
     evidence: ["structuredData"],
     recommendation: "Додайте розмітку BreadcrumbList — вона покращує сніппет у пошуку та допомагає пошуковикам зрозуміти структуру сайту.",
-    enabled: true,
+    developerHint: "⚠️ Screaming Frog не аналізує JS-рендеровану схему. Використайте кнопку «Перевірити» для живої верифікації через реальний HTML сторінки.",
+    enabled: false, // Disabled: SF basic export cannot detect JS-rendered schema. Use live verification instead.
   },
 
   // ── HREFLANG ─────────────────────────────────────────────────────────────

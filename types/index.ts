@@ -169,15 +169,18 @@ export interface Finding {
   ruleTitle: string;
   severity: Severity;
   confidence: number; // 0-1
-  url: string;
+  url: string;        // first affected URL (representative)
   pageType: PageType;
   evidence: Record<string, unknown>;
   recommendation?: string;
   developerHint?: string;
   aiExplanation?: string;
-  affectedCount?: number; // for template-level issues
-  checked?: boolean; // for checklist UI
-  notes?: string; // user notes
+  affectedCount?: number;    // total number of pages with this issue
+  affectedUrls?: string[];   // all affected URLs (populated by aggregateFindings)
+  checked?: boolean;         // whole rule resolved
+  notes?: string;            // user notes
+  verificationStatus?: "verified" | "false_positive" | "unverified";
+  verificationNote?: string; // result from live verification
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────
