@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Plus, Play, Trash2, Download, Upload, ChevronLeft, Loader2,
   FileText, AlertTriangle, CheckSquare, BarChart2, ShieldCheck, Cpu,
+  Save, FolderOpen, RotateCcw,
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store/project-store";
 import { importSFFiles } from "@/lib/sf-parser";
@@ -85,7 +86,10 @@ export default function ProjectPage() {
   const router = useRouter();
   const projectId = params.id as string;
 
-  const { getProject, createAudit, updateAudit, deleteAudit, updateProject, settings } = useProjectStore();
+  const {
+    getProject, createAudit, updateAudit, deleteAudit, updateProject, settings,
+    clearProjectAudits, exportProject, importProject,
+  } = useProjectStore();
   const project = getProject(projectId);
 
   const [activeAuditId, setActiveAuditId] = useState<string | null>(
@@ -97,6 +101,8 @@ export default function ProjectPage() {
   const [running, setRunning] = useState(false);
   const [runProgress, setRunProgress] = useState(0);
   const [sfResult, setSfResult] = useState<SFImportResult | null>(null);
+  // Ref для прихованого file input (завантаження проєкту)
+  const loadFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (project && !activeAuditId && project.audits.length > 0) {
@@ -224,6 +230,56 @@ export default function ProjectPage() {
     toast.success("Аудит видалено");
   };
 
+  // Повна очистка проєкту — видаляє всі аудити та скидає дані SF
+  const handleClearProject = () => {
+    if (!confirm("Очистити всі аудити проєкту? Ця дія незворотна.")) return;
+    clearProjectAudits(projectId);
+    setSfResult(null);
+    setActiveAuditId(null);
+    toast.success("Проєкт очищено");
+  };
+
+  // Зберегти проєкт у JSON-файл
+  const handleSaveProject = () => {
+    const json = exportProject(projectId);
+    if (!json) return;
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${project.name.replace(/[^a-zA-Z0-9а-яА-ЯіІїЇєЄ]/g, "_")}_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Проєкт збережено у файл");
+  };
+
+  // Відкрити file picker для завантаження проєкту
+  const handleLoadProject = () => {
+    loadFileRef.current?.click();
+  };
+
+  // Обробка завантаженого JSON-файлу проєкту
+  const handleLoadFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const json = ev.target?.result as string;
+      const imported = importProject(json);
+      if (!imported) {
+        toast.error("Помилка: невалідний файл проєкту");
+        return;
+      }
+      toast.success(`Проєкт "${imported.name}" завантажено`);
+      router.push(`/projects/${imported.id}`);
+    };
+    reader.readAsText(file);
+    // Скидаємо значення input, щоб можна було завантажити той самий файл повторно
+    e.target.value = "";
+  };
+
   return (
     <div className="p-6">
       {/* Breadcrumb */}
@@ -245,11 +301,40 @@ export default function ProjectPage() {
             <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
           )}
         </div>
-        <Button onClick={() => setShowNewAudit(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Новий аудит
-        </Button>
+        {/* Кнопки управління проєктом */}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleSaveProject} title="Зберегти проєкт у файл">
+            <Save className="h-4 w-4 mr-1.5" />
+            Зберегти
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleLoadProject} title="Відкрити проєкт з файлу">
+            <FolderOpen className="h-4 w-4 mr-1.5" />
+            Відкрити
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearProject}
+            className="text-destructive hover:text-destructive"
+            title="Очистити всі аудити проєкту"
+          >
+            <RotateCcw className="h-4 w-4 mr-1.5" />
+            Очистити
+          </Button>
+          <Button onClick={() => setShowNewAudit(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Новий аудит
+          </Button>
+        </div>
       </div>
+      {/* Прихований file input для завантаження файлу проєкту */}
+      <input
+        ref={loadFileRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        onChange={handleLoadFileChange}
+      />
 
       {project.audits.length === 0 ? (
         <Card className="border-dashed">
@@ -295,6 +380,7 @@ export default function ProjectPage() {
           {activeAudit && (
             <div className="flex-1 min-w-0">
               <AuditView
+                key={activeAudit.id}
                 audit={activeAudit}
                 projectId={projectId}
                 domain={project.domain}
@@ -557,13 +643,13 @@ function AuditView({
           )}
         </TabsContent>
 
-        {/* Tech audit tab */}
-        <TabsContent value="tech" className="mt-4">
+        {/* Технічний аудит — forceMount зберігає результати при перемиканні вкладок */}
+        <TabsContent value="tech" className="mt-4" forceMount>
           <TechAuditPanel domain={domain} sfResult={sfResult} />
         </TabsContent>
 
-        {/* AI Analysis tab */}
-        <TabsContent value="ai" className="mt-4">
+        {/* AI Аналіз — forceMount зберігає результат AI при перемиканні вкладок */}
+        <TabsContent value="ai" className="mt-4" forceMount>
           {audit.status === "completed" && audit.sfStats ? (
             <AiAnalysisPanel
               findings={audit.findings}

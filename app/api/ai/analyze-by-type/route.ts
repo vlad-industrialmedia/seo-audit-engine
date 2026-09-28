@@ -126,15 +126,31 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
             { role: "system", content: "Ти досвідчений SEO-спеціаліст. Відповідай лише валідним JSON." },
             { role: "user", content: prompt },
           ],
-          max_tokens: 4096,
+          // Обмежуємо токени до безпечного значення для безкоштовних акаунтів OpenRouter
+          max_tokens: 2000,
         }),
       });
       if (!res.ok) {
         const errBody = await res.text();
+        // Специфічна обробка помилки 402 — недостатньо кредитів
+        if (res.status === 402) {
+          throw new Error(
+            "Недостатньо кредитів OpenRouter. Поповніть баланс на openrouter.ai/settings/credits або перейдіть на платний план. " +
+            "Alternatively, use Anthropic / Gemini API key in settings."
+          );
+        }
         throw new Error(`OpenRouter error ${res.status}: ${errBody.slice(0, 300)}`);
       }
       const data = await res.json();
-      if (data.error) throw new Error(`OpenRouter: ${JSON.stringify(data.error)}`);
+      // Помилка може прийти у тілі відповіді зі статусом 200
+      if (data.error) {
+        if (data.error.code === 402 || String(data.error.message).includes("credits")) {
+          throw new Error(
+            "Недостатньо кредитів OpenRouter. Поповніть баланс на openrouter.ai/settings/credits."
+          );
+        }
+        throw new Error(`OpenRouter: ${JSON.stringify(data.error)}`);
+      }
       return data.choices?.[0]?.message?.content || "";
     }
 

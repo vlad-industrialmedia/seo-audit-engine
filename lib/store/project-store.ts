@@ -37,6 +37,9 @@ interface ProjectStore {
   setDefaultProvider: (provider: AIProvider | undefined) => void;
   setProviderModel: (provider: AIProvider, model: string) => void;
 
+  // Очистка проєкту
+  clearProjectAudits: (id: string) => void;
+
   // Import / Export
   exportProject: (id: string) => string;
   importProject: (json: string) => Project | null;
@@ -297,6 +300,15 @@ export const useProjectStore = create<ProjectStore>()(
               [provider]: { ...s.settings.aiProviders[provider], model },
             },
           },
+        }));
+      },
+
+      // Видаляє всі аудити проєкту, скидає до початкового стану
+      clearProjectAudits: (id) => {
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === id ? { ...p, audits: [], updatedAt: new Date().toISOString() } : p
+          ),
         }));
       },
 
