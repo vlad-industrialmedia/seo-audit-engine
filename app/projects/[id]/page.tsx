@@ -305,9 +305,31 @@ export default function ProjectPage() {
                 running={running}
                 runProgress={runProgress}
                 sfResult={sfResult}
-                aiProvider={settings.defaultProvider}
-                aiApiKey={settings.defaultProvider ? (settings.aiProviders[settings.defaultProvider]?.apiKey ?? "") : ""}
-                aiModel={settings.defaultProvider ? (settings.aiProviders[settings.defaultProvider]?.model ?? "") : ""}
+                aiProvider={(() => {
+                  // Use defaultProvider if set and has a key; otherwise fall back to first validated provider
+                  if (settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey) {
+                    return settings.defaultProvider;
+                  }
+                  return (Object.keys(settings.aiProviders) as AIProvider[]).find(
+                    (p) => settings.aiProviders[p]?.validated && settings.aiProviders[p]?.apiKey
+                  );
+                })()}
+                aiApiKey={(() => {
+                  const p = settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey
+                    ? settings.defaultProvider
+                    : (Object.keys(settings.aiProviders) as AIProvider[]).find(
+                        (p2) => settings.aiProviders[p2]?.validated && settings.aiProviders[p2]?.apiKey
+                      );
+                  return p ? (settings.aiProviders[p]?.apiKey ?? "") : "";
+                })()}
+                aiModel={(() => {
+                  const p = settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey
+                    ? settings.defaultProvider
+                    : (Object.keys(settings.aiProviders) as AIProvider[]).find(
+                        (p2) => settings.aiProviders[p2]?.validated && settings.aiProviders[p2]?.apiKey
+                      );
+                  return p ? (settings.aiProviders[p]?.model ?? "") : "";
+                })()}
               />
             </div>
           )}

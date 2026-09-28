@@ -4,11 +4,6 @@ export const maxDuration = 30;
 
 const BOT_UA = "Mozilla/5.0 (compatible; SEOAuditBot/1.0; +https://seo-audit-engine.vercel.app)";
 
-interface VerifyRequest {
-  url: string;
-  ruleId: string;
-}
-
 // Rules that can be verified by fetching the page
 const VERIFIABLE_RULES: Record<string, (html: string, headers: Headers) => boolean> = {
   "meta.title.missing": (html) => {
@@ -48,28 +43,21 @@ const VERIFIABLE_RULES: Record<string, (html: string, headers: Headers) => boole
   "canonical.missing": (html) => {
     return !/<link[^>]+rel=["']canonical["']/i.test(html);
   },
-  "http.redirect_chain": (_html, _headers) => {
-    // Can't reliably detect redirect chains server-side here — assume confirmed
-    return true;
-  },
-  "http.slow_response": () => true, // confirmed via timing data from SF
+  "http.redirect_chain": () => true,
+  "http.slow_response": () => true,
 };
 
-export async function POST(req: Request) {
+async function verifyUrl(url: string, ruleId: string): Promise<{
+  url: string;
+  issueFound: boolean;
+  note: string;
+}> {
+  const verifier = VERIFIABLE_RULES[ruleId];
+  if (!verifier) {
+    return { url, issueFound: true, note: "Правило не підлягає автоверифікації" };
+  }
+
   try {
-    const { url, ruleId } = (await req.json()) as VerifyRequest;
-
-    if (!url || !ruleId) {
-      return NextResponse.json({ confirmed: false, error: "url та ruleId обов'язкові" }, { status: 400 });
-    }
-
-    const verifier = VERIFIABLE_RULES[ruleId];
-    if (!verifier) {
-      // Rule not verifiable — treat as confirmed
-      return NextResponse.json({ confirmed: true, note: "Правило не підлягає автоверифікації" });
-    }
-
-    const start = Date.now();
     const res = await fetch(url, {
       method: "GET",
       headers: { "User-Agent": BOT_UA, Accept: "text/html" },
@@ -78,19 +66,73 @@ export async function POST(req: Request) {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ confirmed: false, error: `HTTP ${res.status}`, url });
+      return { url, issueFound: false, note: `HTTP ${res.status}` };
     }
 
     const html = await res.text();
-    const responseTimeMs = Date.now() - start;
-    const confirmed = verifier(html, res.headers);
+    const issueFound = verifier(html, res.headers);
+    return {
+      url,
+      issueFound,
+      note: issueFound ? "Проблему підтверджено" : "Проблему не знайдено",
+    };
+  } catch (err) {
+    return { url, issueFound: true, note: `Помилка: ${(err as Error).message}` };
+  }
+}
 
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    // Accept both { url, ruleId } (legacy / auto-verify) and { urls, ruleId } (manual batch)
+    const ruleId: string | undefined = body.ruleId;
+    const urlsSingle: string | undefined = body.url;
+    const urlsArray: string[] | undefined = body.urls;
+
+    if (!ruleId) {
+      return NextResponse.json({ confirmed: false, error: "ruleId обов'язковий" }, { status: 400 });
+    }
+
+    // ── Batch mode: { urls[], ruleId } ────────────────────────────────────────
+    if (urlsArray && Array.isArray(urlsArray)) {
+      const sample = urlsArray.slice(0, 3);
+      if (sample.length === 0) {
+        return NextResponse.json({ status: "unverified", note: "Немає URL для перевірки", checks: [] });
+      }
+
+      const checks = await Promise.all(sample.map((u) => verifyUrl(u, ruleId)));
+      const foundCount = checks.filter((c) => c.issueFound).length;
+
+      let status: "verified" | "false_positive" | "unverified";
+      let note: string;
+
+      if (foundCount === 0) {
+        status = "false_positive";
+        note = `Не підтверджено на ${sample.length} сторінках — можливо хибне спрацювання`;
+      } else if (foundCount === sample.length) {
+        status = "verified";
+        note = `Підтверджено на ${foundCount} з ${sample.length} перевірених сторінок`;
+      } else {
+        status = "verified";
+        note = `Підтверджено на ${foundCount} з ${sample.length} перевірених сторінок`;
+      }
+
+      return NextResponse.json({ status, note, checks });
+    }
+
+    // ── Single URL mode: { url, ruleId } (auto-verify flow) ──────────────────
+    const url = urlsSingle;
+    if (!url) {
+      return NextResponse.json({ confirmed: false, error: "url або urls обов'язкові" }, { status: 400 });
+    }
+
+    const result = await verifyUrl(url, ruleId);
     return NextResponse.json({
-      confirmed,
+      confirmed: result.issueFound,
       url,
       ruleId,
-      responseTimeMs,
-      note: confirmed ? "Проблему підтверджено на сторінці" : "Проблему не знайдено на сторінці",
+      note: result.note,
     });
   } catch (err) {
     return NextResponse.json(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { TechAuditResult, TechCheckStatus, SFImportResult } from "@/types";
+import type { TechAuditResult, TechCheckStatus, SFImportResult, StructuredDataCheck, OpenGraphCheck, SecurityHeadersCheck, AnalyticsCheck, CompressionCheck } from "@/types";
 
 interface Props {
   domain: string;
@@ -293,6 +293,101 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                   </div>
                 )}
               </CheckRow>
+            )}
+
+            {/* Structured Data */}
+            {result.structuredData && (
+              <CheckRow title="Структуровані дані (Schema.org)" status={result.structuredData.status} note={result.structuredData.note}>
+                {result.structuredData.types.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {result.structuredData.types.slice(0, 8).map((t) => (
+                      <span key={t} className="text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded font-mono">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </CheckRow>
+            )}
+
+            {/* Open Graph */}
+            {result.openGraph && (
+              <CheckRow title="Open Graph / Social Meta" status={result.openGraph.status} note={result.openGraph.note}>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {(["hasOgTitle", "hasOgDescription", "hasOgImage", "hasTwitterCard"] as const).map((key) => {
+                    const labels: Record<string, string> = {
+                      hasOgTitle: "og:title",
+                      hasOgDescription: "og:description",
+                      hasOgImage: "og:image",
+                      hasTwitterCard: "twitter:card",
+                    };
+                    const val = result.openGraph![key];
+                    return (
+                      <span key={key} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                        val
+                          ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                          : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                      }`}>
+                        {val ? "✓" : "✗"} {labels[key]}
+                      </span>
+                    );
+                  })}
+                </div>
+              </CheckRow>
+            )}
+
+            {/* Analytics */}
+            {result.analytics && (
+              <CheckRow title="Системи аналітики" status={result.analytics.status} note={result.analytics.note}>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {[
+                    { key: "hasGA4", label: "GA4" },
+                    { key: "hasGTM", label: "GTM" },
+                    { key: "hasYandexMetrika", label: "Яндекс.Метрика" },
+                  ].map(({ key, label }) => {
+                    const val = result.analytics![key as keyof AnalyticsCheck] as boolean;
+                    return (
+                      <span key={key} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                        val
+                          ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                          : "bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700"
+                      }`}>
+                        {val ? "✓" : "—"} {label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </CheckRow>
+            )}
+
+            {/* Security Headers */}
+            {result.securityHeaders && (
+              <CheckRow title="Заголовки безпеки" status={result.securityHeaders.status} note={result.securityHeaders.note}>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {[
+                    { key: "hsts", label: "HSTS" },
+                    { key: "xFrameOptions", label: "X-Frame-Options" },
+                    { key: "xContentTypeOptions", label: "X-Content-Type-Options" },
+                    { key: "csp", label: "CSP" },
+                  ].map(({ key, label }) => {
+                    const val = result.securityHeaders![key as keyof SecurityHeadersCheck] as boolean;
+                    return (
+                      <span key={key} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                        val
+                          ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                          : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                      }`}>
+                        {val ? "✓" : "✗"} {label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </CheckRow>
+            )}
+
+            {/* Compression */}
+            {result.compression && (
+              <CheckRow title="Стиснення (Gzip / Brotli)" status={result.compression.status} note={result.compression.note} />
             )}
           </div>
         </div>

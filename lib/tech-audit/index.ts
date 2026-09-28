@@ -7,6 +7,11 @@ import type {
   SitemapCheck,
   SitemapStatusIssue,
   PageSpeedCheck,
+  StructuredDataCheck,
+  OpenGraphCheck,
+  SecurityHeadersCheck,
+  AnalyticsCheck,
+  CompressionCheck,
 } from "@/types";
 
 const BOT_UA =
@@ -496,6 +501,177 @@ export async function checkPageSpeed(
   }
 }
 
+// ─── Structured data check ───────────────────────────────────────────────────
+function checkStructuredDataFromHtml(html: string): StructuredDataCheck {
+  const hasJsonLd = /<script[^>]+type=["']application\/ld\+json["']/i.test(html);
+  const hasMicrodata = /itemscope/i.test(html);
+
+  const types: string[] = [];
+  if (hasJsonLd) {
+    const matches = html.matchAll(/"@type"\s*:\s*"([^"]+)"/g);
+    for (const m of Array.from(matches)) {
+      if (!types.includes(m[1])) types.push(m[1]);
+    }
+  }
+
+  const found = hasJsonLd || hasMicrodata;
+  const hasOrgOrWebsite = types.some((t) => ["Organization", "WebSite", "LocalBusiness"].includes(t));
+
+  let status: StructuredDataCheck["status"] = "ok";
+  let note = "";
+
+  if (!found) {
+    status = "issue";
+    note = "Структуровані дані відсутні. Рекомендується додати Schema.org (Organization, WebSite, BreadcrumbList).";
+  } else if (hasJsonLd && types.length > 0) {
+    note = `Знайдено JSON-LD: ${types.slice(0, 5).join(", ")}${types.length > 5 ? ` +${types.length - 5}` : ""}.`;
+    if (!hasOrgOrWebsite) {
+      status = "issue";
+      note += " Відсутній тип Organization або WebSite.";
+    }
+  } else if (hasMicrodata) {
+    note = "Знайдено Microdata. Рекомендується перейти на JSON-LD.";
+  }
+
+  return { status, found, types, hasJsonLd, hasMicrodata, note };
+}
+
+// ─── Open Graph check ─────────────────────────────────────────────────────────
+function checkOpenGraphFromHtml(html: string): OpenGraphCheck {
+  const hasOgTitle = /<meta[^>]+property=["']og:title["']/i.test(html);
+  const hasOgDescription = /<meta[^>]+property=["']og:description["']/i.test(html);
+  const hasOgImage = /<meta[^>]+property=["']og:image["']/i.test(html);
+  const hasTwitterCard = /<meta[^>]+name=["']twitter:card["']/i.test(html);
+
+  const score = [hasOgTitle, hasOgDescription, hasOgImage, hasTwitterCard].filter(Boolean).length;
+  let status: OpenGraphCheck["status"] = "ok";
+  const missing: string[] = [];
+  if (!hasOgTitle) missing.push("og:title");
+  if (!hasOgDescription) missing.push("og:description");
+  if (!hasOgImage) missing.push("og:image");
+  if (!hasTwitterCard) missing.push("twitter:card");
+
+  let note = "";
+  if (score === 4) {
+    note = "Open Graph і Twitter Card налаштовано повністю. ✅";
+  } else if (score >= 2) {
+    status = "issue";
+    note = `Частково налаштовано (${score}/4). Відсутні: ${missing.join(", ")}.`;
+  } else {
+    status = "error";
+    note = `Open Graph майже не налаштовано (${score}/4). Відсутні: ${missing.join(", ")}.`;
+  }
+
+  return { status, hasOgTitle, hasOgDescription, hasOgImage, hasTwitterCard, note };
+}
+
+// ─── Security headers check ───────────────────────────────────────────────────
+function checkSecurityHeadersFromHeaders(headers: Headers): SecurityHeadersCheck {
+  const hsts = !!headers.get("strict-transport-security");
+  const xFrameOptions = !!headers.get("x-frame-options");
+  const xContentTypeOptions = (headers.get("x-content-type-options") ?? "").toLowerCase().includes("nosniff");
+  const csp = !!headers.get("content-security-policy");
+
+  const score = [hsts, xFrameOptions, xContentTypeOptions, csp].filter(Boolean).length;
+  const missing: string[] = [];
+  if (!hsts) missing.push("HSTS");
+  if (!xFrameOptions) missing.push("X-Frame-Options");
+  if (!xContentTypeOptions) missing.push("X-Content-Type-Options");
+  if (!csp) missing.push("CSP");
+
+  let status: SecurityHeadersCheck["status"] = "ok";
+  let note = "";
+
+  if (score === 4) {
+    note = "Всі основні заголовки безпеки присутні. ✅";
+  } else if (score >= 2) {
+    status = "issue";
+    note = `${score}/4 заголовків безпеки. Відсутні: ${missing.join(", ")}.`;
+  } else {
+    status = "error";
+    note = `Заголовки безпеки не налаштовано (${score}/4). Відсутні: ${missing.join(", ")}.`;
+  }
+
+  return { status, hsts, xFrameOptions, xContentTypeOptions, csp, note };
+}
+
+// ─── Analytics check ──────────────────────────────────────────────────────────
+function checkAnalyticsFromHtml(html: string): AnalyticsCheck {
+  const hasGA4 = /gtag\s*\(\s*["']config["']|G-[A-Z0-9]{6,}/i.test(html) ||
+    /google-analytics\.com\/g\/collect/i.test(html);
+  const hasGTM = /googletagmanager\.com\/gtm\.js/i.test(html) ||
+    /GTM-[A-Z0-9]{4,}/i.test(html);
+  const hasYandexMetrika = /mc\.yandex\.ru\/metrika/i.test(html) ||
+    /ym\s*\(\s*\d+\s*,\s*["']init["']/i.test(html);
+
+  const found = hasGA4 || hasGTM || hasYandexMetrika;
+  let status: AnalyticsCheck["status"] = "ok";
+  const detected: string[] = [];
+  if (hasGA4) detected.push("Google Analytics 4");
+  if (hasGTM) detected.push("Google Tag Manager");
+  if (hasYandexMetrika) detected.push("Яндекс.Метрика");
+
+  let note = "";
+  if (!found) {
+    status = "issue";
+    note = "Системи аналітики не виявлено. Перевірте наявність GA4 або GTM.";
+  } else {
+    note = `Виявлено: ${detected.join(", ")}. ✅`;
+  }
+
+  return { status, hasGA4, hasGTM, hasYandexMetrika, note };
+}
+
+// ─── Compression check ────────────────────────────────────────────────────────
+function checkCompressionFromHeaders(headers: Headers): CompressionCheck {
+  const encoding = headers.get("content-encoding");
+  const hasBr = encoding?.includes("br");
+  const hasGzip = encoding?.includes("gzip");
+
+  if (hasBr) return { status: "ok", encoding: "br (Brotli)", note: "Brotli-стиснення увімкнено. ✅" };
+  if (hasGzip) return { status: "ok", encoding: "gzip", note: "Gzip-стиснення увімкнено. ✅" };
+  return { status: "issue", encoding: null, note: "Стиснення не виявлено. Увімкніть Gzip або Brotli на сервері." };
+}
+
+// ─── Combined homepage check (structured data + OG + security + analytics + compression) ─
+async function checkHomepage(domain: string): Promise<{
+  structuredData: StructuredDataCheck;
+  openGraph: OpenGraphCheck;
+  securityHeaders: SecurityHeadersCheck;
+  analytics: AnalyticsCheck;
+  compression: CompressionCheck;
+}> {
+  const url = `https://${domain}/`;
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": BOT_UA, Accept: "text/html", "Accept-Encoding": "gzip, br" },
+      signal: AbortSignal.timeout(15000),
+      redirect: "follow",
+    });
+
+    const html = await res.text();
+    const headers = res.headers;
+
+    return {
+      structuredData: checkStructuredDataFromHtml(html),
+      openGraph: checkOpenGraphFromHtml(html),
+      securityHeaders: checkSecurityHeadersFromHeaders(headers),
+      analytics: checkAnalyticsFromHtml(html),
+      compression: checkCompressionFromHeaders(headers),
+    };
+  } catch (e) {
+    const errMsg = `Не вдалось завантажити головну сторінку: ${(e as Error).message}`;
+    const unknown = { status: "unknown" as const, note: errMsg };
+    return {
+      structuredData: { ...unknown, found: false, types: [], hasJsonLd: false, hasMicrodata: false },
+      openGraph: { ...unknown, hasOgTitle: false, hasOgDescription: false, hasOgImage: false, hasTwitterCard: false },
+      securityHeaders: { ...unknown, hsts: false, xFrameOptions: false, xContentTypeOptions: false, csp: false },
+      analytics: { ...unknown, hasGA4: false, hasGTM: false, hasYandexMetrika: false },
+      compression: { ...unknown, encoding: null },
+    };
+  }
+}
+
 // ─── Run full tech audit ──────────────────────────────────────────────────────
 export async function runTechAudit(
   domain: string,
@@ -509,10 +685,11 @@ export async function runTechAudit(
   const bare = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
   const sfUrls = options.sfUrls ?? [];
 
-  const [mirror, https, robots] = await Promise.all([
+  const [mirror, https, robots, homepageChecks] = await Promise.all([
     checkMainMirror(bare),
     checkHttps(bare),
     checkRobotsTxt(bare, sfUrls),
+    checkHomepage(bare),
   ]);
 
   const sitemap = await checkSitemap(bare, robots.sitemapUrls, options.sfTotalUrls);
@@ -530,5 +707,10 @@ export async function runTechAudit(
     robotsTxt: robots,
     sitemap,
     pageSpeed,
+    structuredData: homepageChecks.structuredData,
+    openGraph: homepageChecks.openGraph,
+    securityHeaders: homepageChecks.securityHeaders,
+    analytics: homepageChecks.analytics,
+    compression: homepageChecks.compression,
   };
 }

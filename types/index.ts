@@ -426,6 +426,47 @@ export interface PageSpeedCheck {
   note: string;
 }
 
+export interface StructuredDataCheck {
+  status: TechCheckStatus;
+  found: boolean;
+  types: string[];   // e.g. ["Organization", "WebSite", "BreadcrumbList"]
+  hasJsonLd: boolean;
+  hasMicrodata: boolean;
+  note: string;
+}
+
+export interface OpenGraphCheck {
+  status: TechCheckStatus;
+  hasOgTitle: boolean;
+  hasOgDescription: boolean;
+  hasOgImage: boolean;
+  hasTwitterCard: boolean;
+  note: string;
+}
+
+export interface SecurityHeadersCheck {
+  status: TechCheckStatus;
+  hsts: boolean;
+  xFrameOptions: boolean;
+  xContentTypeOptions: boolean;
+  csp: boolean;
+  note: string;
+}
+
+export interface AnalyticsCheck {
+  status: TechCheckStatus;
+  hasGA4: boolean;
+  hasGTM: boolean;
+  hasYandexMetrika: boolean;
+  note: string;
+}
+
+export interface CompressionCheck {
+  status: TechCheckStatus;
+  encoding: string | null; // "gzip" | "br" | null
+  note: string;
+}
+
 export interface TechAuditResult {
   domain: string;
   checkedAt: string;
@@ -434,6 +475,11 @@ export interface TechAuditResult {
   robotsTxt: RobotsTxtCheck;
   sitemap: SitemapCheck;
   pageSpeed?: PageSpeedCheck;
+  structuredData?: StructuredDataCheck;
+  openGraph?: OpenGraphCheck;
+  securityHeaders?: SecurityHeadersCheck;
+  analytics?: AnalyticsCheck;
+  compression?: CompressionCheck;
   error?: string;
 }
 
