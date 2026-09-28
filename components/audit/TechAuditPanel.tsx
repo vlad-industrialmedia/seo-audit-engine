@@ -28,6 +28,10 @@ interface Props {
   domain: string;
   psiApiKey?: string;
   sfResult?: SFImportResult | null;
+  // Колбек для збереження результатів у батьківський компонент (кешування в store)
+  onResult?: (result: TechAuditResult) => void;
+  // Початкові кешовані дані для відновлення збереженого проєкту
+  initialResult?: TechAuditResult | null;
 }
 
 function StatusBadge({ status }: { status: TechCheckStatus }) {
@@ -172,8 +176,9 @@ function samplePagesByType(
   return sampled;
 }
 
-export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
-  const [result, setResult] = useState<TechAuditResult | null>(null);
+export default function TechAuditPanel({ domain, psiApiKey, sfResult, onResult, initialResult }: Props) {
+  // Якщо є кешований результат — ініціалізуємо ним, інакше починаємо з null
+  const [result, setResult] = useState<TechAuditResult | null>(initialResult ?? null);
 
   // ─── URL для зовнішніх сервісів верифікації ───────────────────────────────
   // Будуємо посилання один раз на базі домену проєкту
@@ -203,6 +208,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
   const [runPsi, setRunPsi] = useState(false);
   const [expandedPage, setExpandedPage] = useState<string | null>(null);
   const [screenshotLoading, setScreenshotLoading] = useState(false);
+  // ─── Локальний PSI API ключ (зберігається в компоненті, не в store) ─────────
+  // Дозволяємо ввести ключ прямо в панелі; якщо передано через props — використовуємо його
+  const [localPsiKey, setLocalPsiKey] = useState(psiApiKey ?? "");
 
   // Ref на блок з результатами для html2canvas
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -253,7 +261,8 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           domain,
-          psiApiKey,
+          // Використовуємо локальний ключ якщо є, інакше переданий через props
+          psiApiKey: localPsiKey || psiApiKey,
           runPageSpeed: runPsi,
           // Send up to 2000 URLs to avoid huge payloads
           sfUrls: sfUrls.slice(0, 2000),
@@ -266,6 +275,8 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
       }
       const data = await res.json();
       setResult(data);
+      // Сповіщаємо батьківський компонент про результат для збереження в кеш
+      onResult?.(data);
 
       // Kick off per-page sampling in the background if SF data is available
       if (sfResult?.rows && sfResult.rows.length > 0) {
@@ -318,15 +329,38 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
             Дані SF завантажено · {sfResult.rows.length.toLocaleString("uk")} URL для аналізу
           </span>
         )}
-        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer select-none ml-auto">
-          <input
-            type="checkbox"
-            checked={runPsi}
-            onChange={(e) => setRunPsi(e.target.checked)}
-            className="rounded"
-          />
-          PageSpeed Insights (повільніше)
-        </label>
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={runPsi}
+              onChange={(e) => setRunPsi(e.target.checked)}
+              className="rounded"
+            />
+            PageSpeed Insights (повільніше)
+          </label>
+          {/* Поле для PSI API ключа — з'являється тільки коли увімкнена перевірка PSI */}
+          {runPsi && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="password"
+                value={localPsiKey}
+                onChange={(e) => setLocalPsiKey(e.target.value)}
+                placeholder="PSI API ключ (необов'язково)"
+                title="Google PageSpeed Insights API ключ. Без ключа — ліміт 25 запитів/добу."
+                className="w-52 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder:text-gray-400"
+              />
+              <a
+                href="https://developers.google.com/speed/docs/insights/v5/get-started#key"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-500 hover:underline whitespace-nowrap"
+              >
+                Отримати ключ
+              </a>
+            </div>
+          )}
+        </div>
         {/* Кнопка скріншоту — доступна тільки коли є результати */}
         {(result || sfAnalysis) && !loading && (
           <button

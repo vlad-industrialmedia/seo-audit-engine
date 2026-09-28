@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { v4 as uuidv4 } from "uuid";
-import type { Project, Audit, Finding, AuditSummary, AppSettings, AIProvider } from "@/types";
+import type { Project, Audit, Finding, AuditSummary, AppSettings, AIProvider, SFImportResult, TechAuditResult, GscAuditResult, Ga4AuditResult } from "@/types";
 import { buildAuditSummary } from "@/lib/rule-engine/engine";
 
 interface ProjectStore {
@@ -36,6 +36,18 @@ interface ProjectStore {
   setApiKeyValidated: (provider: AIProvider, validated: boolean) => void;
   setDefaultProvider: (provider: AIProvider | undefined) => void;
   setProviderModel: (provider: AIProvider, model: string) => void;
+
+  // Кешування результатів аудиту для збереженого проєкту
+  saveAuditCache: (
+    projectId: string,
+    auditId: string,
+    cache: {
+      sfData?: SFImportResult | null;
+      techAudit?: TechAuditResult | null;
+      gscAudit?: GscAuditResult | null;
+      ga4Audit?: Ga4AuditResult | null;
+    }
+  ) => void;
 
   // Очистка проєкту
   clearProjectAudits: (id: string) => void;
@@ -302,6 +314,32 @@ export const useProjectStore = create<ProjectStore>()(
               [provider]: { ...s.settings.aiProviders[provider], model },
             },
           },
+        }));
+      },
+
+      // Зберігає кешовані результати аудиту в Zustand store (SF дані, tech audit, GSC, GA4)
+      saveAuditCache: (projectId, auditId, cache) => {
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  audits: p.audits.map((a) =>
+                    a.id === auditId
+                      ? {
+                          ...a,
+                          // Оновлюємо тільки передані поля кешу
+                          ...(cache.sfData !== undefined && { cachedSfData: cache.sfData }),
+                          ...(cache.techAudit !== undefined && { cachedTechAudit: cache.techAudit }),
+                          ...(cache.gscAudit !== undefined && { cachedGscAudit: cache.gscAudit }),
+                          ...(cache.ga4Audit !== undefined && { cachedGa4Audit: cache.ga4Audit }),
+                        }
+                      : a
+                  ),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
         }));
       },
 

@@ -839,9 +839,15 @@ function Ga4Results({ data }: { data: Ga4AuditResult }) {
 // ─── Головний компонент GscAuditPanel ─────────────────────────────────────────
 interface GscAuditPanelProps {
   domain: string;
+  // Початкові кешовані результати для відновлення збереженого аудиту
+  initialGscAudit?: GscAuditResult | null;
+  initialGa4Audit?: Ga4AuditResult | null;
+  // Колбеки збереження результатів у батьківський компонент (кешування в store)
+  onGscResult?: (result: GscAuditResult) => void;
+  onGa4Result?: (result: Ga4AuditResult) => void;
 }
 
-export function GscAuditPanel({ domain }: GscAuditPanelProps) {
+export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscResult, onGa4Result }: GscAuditPanelProps) {
   const { settings, updateSettings } = useProjectStore();
 
   // ─── OAuth стан (не зберігається в localStorage) ──────────────────────────
@@ -856,15 +862,23 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
   const [gscProperties, setGscProperties] = useState<GscProperty[]>([]);
   const [selectedGscProperty, setSelectedGscProperty] = useState<string>("");
   const [gscLoading, setGscLoading] = useState(false);
-  const [gscResult, setGscResult] = useState<GscAuditResult | null>(null);
+  // Ініціалізуємо з кешованого результату (якщо є збережений аудит)
+  const [gscResult, setGscResult] = useState<GscAuditResult | null>(initialGscAudit ?? null);
   const [gscError, setGscError] = useState<string | null>(null);
 
   // ─── GA4 стан ─────────────────────────────────────────────────────────────
   const [ga4Properties, setGa4Properties] = useState<Ga4Property[]>([]);
   const [selectedGa4Property, setSelectedGa4Property] = useState<string>("");
   const [ga4Loading, setGa4Loading] = useState(false);
-  const [ga4Result, setGa4Result] = useState<Ga4AuditResult | null>(null);
+  // Ініціалізуємо з кешованого результату (якщо є збережений аудит)
+  const [ga4Result, setGa4Result] = useState<Ga4AuditResult | null>(initialGa4Audit ?? null);
   const [ga4Error, setGa4Error] = useState<string | null>(null);
+
+  // ─── Стан завантаження властивостей (окремо від gscLoading/ga4Loading) ────
+  // Не показуємо спінер поки не почалось завантаження (до логіну = false)
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  // Чи вже робилась хоча б одна спроба завантажити властивості
+  const [propertiesLoaded, setPropertiesLoaded] = useState(false);
 
   // ─── Загальні налаштування ────────────────────────────────────────────────
   const [dateRange, setDateRange] = useState<28 | 90 | 180>(90);
@@ -936,33 +950,41 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
   const loadProperties = useCallback(async () => {
     if (!accessToken) return;
 
-    // GSC властивості
-    const gscRes = await fetch("/api/gsc/properties", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken }),
-    });
-    if (gscRes.ok) {
-      const { properties } = (await gscRes.json()) as { properties: GscProperty[] };
-      setGscProperties(properties);
-      // Авто-вибір властивості якщо є збіг з доменом проєкту
-      const match = properties.find((p) =>
-        p.siteUrl.includes(domain.replace(/^https?:\/\//, "").replace(/\/$/, ""))
-      );
-      if (match) setSelectedGscProperty(match.siteUrl);
-      else if (properties.length > 0) setSelectedGscProperty(properties[0].siteUrl);
-    }
+    setPropertiesLoading(true);
+    setPropertiesLoaded(false);
 
-    // GA4 властивості
-    const ga4Res = await fetch("/api/ga4/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken }),
-    });
-    if (ga4Res.ok) {
-      const { properties } = (await ga4Res.json()) as { properties: Ga4Property[] };
-      setGa4Properties(properties);
-      if (properties.length > 0) setSelectedGa4Property(properties[0].property);
+    try {
+      // GSC властивості
+      const gscRes = await fetch("/api/gsc/properties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken }),
+      });
+      if (gscRes.ok) {
+        const { properties } = (await gscRes.json()) as { properties: GscProperty[] };
+        setGscProperties(properties);
+        // Авто-вибір властивості якщо є збіг з доменом проєкту
+        const match = properties.find((p) =>
+          p.siteUrl.includes(domain.replace(/^https?:\/\//, "").replace(/\/$/, ""))
+        );
+        if (match) setSelectedGscProperty(match.siteUrl);
+        else if (properties.length > 0) setSelectedGscProperty(properties[0].siteUrl);
+      }
+
+      // GA4 властивості
+      const ga4Res = await fetch("/api/ga4/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken }),
+      });
+      if (ga4Res.ok) {
+        const { properties } = (await ga4Res.json()) as { properties: Ga4Property[] };
+        setGa4Properties(properties);
+        if (properties.length > 0) setSelectedGa4Property(properties[0].property);
+      }
+    } finally {
+      setPropertiesLoading(false);
+      setPropertiesLoaded(true);
     }
   }, [accessToken, domain]);
 
@@ -983,6 +1005,9 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
     setGa4Result(null);
     setSelectedGscProperty("");
     setSelectedGa4Property("");
+    // Скидаємо стан завантаження властивостей при виході
+    setPropertiesLoading(false);
+    setPropertiesLoaded(false);
   }, []);
 
   // ─── GSC аудит ────────────────────────────────────────────────────────────
@@ -1002,13 +1027,15 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
         setGscError(data.detail ?? data.error ?? "Невідома помилка");
       } else if (data.result) {
         setGscResult(data.result);
+        // Зберігаємо результат у батьківському компоненті для кешування в store
+        onGscResult?.(data.result);
       }
     } catch (e) {
       setGscError((e as Error).message);
     } finally {
       setGscLoading(false);
     }
-  }, [accessToken, selectedGscProperty, dateRange]);
+  }, [accessToken, selectedGscProperty, dateRange, onGscResult]);
 
   // ─── GA4 аудит ────────────────────────────────────────────────────────────
   const runGa4Audit = useCallback(async () => {
@@ -1027,13 +1054,15 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
         setGa4Error(data.detail ?? data.error ?? "Невідома помилка");
       } else if (data.result) {
         setGa4Result(data.result);
+        // Зберігаємо результат у батьківському компоненті для кешування в store
+        onGa4Result?.(data.result);
       }
     } catch (e) {
       setGa4Error((e as Error).message);
     } finally {
       setGa4Loading(false);
     }
-  }, [accessToken, selectedGa4Property, dateRange]);
+  }, [accessToken, selectedGa4Property, dateRange, onGa4Result]);
 
   // ─── Збереження Client ID ─────────────────────────────────────────────────
   const saveClientId = useCallback(() => {
@@ -1316,10 +1345,23 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
                   {gscLoading ? "" : "Аудит GSC"}
                 </Button>
               </div>
-            ) : (
+            ) : propertiesLoading ? (
+              /* Активне завантаження з API */
               <div className="flex items-center gap-2 text-xs text-gray-400 border rounded-lg px-3 py-2">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Завантаження властивостей...
+              </div>
+            ) : propertiesLoaded ? (
+              /* Завантаження завершено, але властивостей не знайдено */
+              <div className="flex items-center gap-2 text-xs text-gray-400 border rounded-lg px-3 py-2">
+                <AlertCircle className="h-3 w-3" />
+                GSC властивостей не знайдено для цього акаунту
+              </div>
+            ) : (
+              /* Ще не авторизований — кнопка не показується тут, але поле не висить зі спінером */
+              <div className="flex items-center gap-2 text-xs text-gray-400 border border-dashed rounded-lg px-3 py-2">
+                <LogIn className="h-3 w-3" />
+                Увійдіть через Google для отримання властивостей
               </div>
             )}
           </div>
@@ -1350,10 +1392,23 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
                   {ga4Loading ? "" : "Аудит GA4"}
                 </Button>
               </div>
-            ) : (
+            ) : propertiesLoading ? (
+              /* Активне завантаження з API */
               <div className="flex items-center gap-2 text-xs text-gray-400 border rounded-lg px-3 py-2">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Завантаження властивостей...
+              </div>
+            ) : propertiesLoaded ? (
+              /* Завантаження завершено, але GA4 властивостей не знайдено */
+              <div className="flex items-center gap-2 text-xs text-gray-400 border rounded-lg px-3 py-2">
+                <AlertCircle className="h-3 w-3" />
+                GA4 властивостей не знайдено для цього акаунту
+              </div>
+            ) : (
+              /* Ще не авторизований */
+              <div className="flex items-center gap-2 text-xs text-gray-400 border border-dashed rounded-lg px-3 py-2">
+                <LogIn className="h-3 w-3" />
+                Увійдіть через Google для отримання властивостей
               </div>
             )}
           </div>

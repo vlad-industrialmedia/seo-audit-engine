@@ -89,7 +89,7 @@ export default function ProjectPage() {
 
   const {
     getProject, createAudit, updateAudit, deleteAudit, updateProject, settings,
-    clearProjectAudits, exportProject, importProject,
+    clearProjectAudits, exportProject, importProject, saveAuditCache,
   } = useProjectStore();
   const project = getProject(projectId);
 
@@ -110,6 +110,20 @@ export default function ProjectPage() {
       setActiveAuditId(project.audits.at(-1)!.id);
     }
   }, [project, activeAuditId]);
+
+  // ─── Відновлення кешованих даних SF при переключенні аудиту ─────────────────
+  // Якщо в збереженому аудиті є cachedSfData — підставляємо його автоматично
+  useEffect(() => {
+    if (!activeAuditId || !project) return;
+    const audit = project.audits.find((a) => a.id === activeAuditId);
+    if (!audit) return;
+    // Відновлюємо SF дані з кешу якщо поточний sfResult пустий
+    if (audit.cachedSfData && !sfResult) {
+      setSfResult(audit.cachedSfData);
+    }
+  // Навмисно тільки при зміні activeAuditId — щоб не перезаписувати свіжоімпортовані
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAuditId]);
 
   if (!project) {
     return (
@@ -140,6 +154,10 @@ export default function ProjectPage() {
       return;
     }
     setSfResult(result);
+    // Зберігаємо SF дані в кеш аудиту для відновлення при наступному відкритті
+    if (activeAuditId) {
+      saveAuditCache(projectId, activeAuditId, { sfData: result });
+    }
     toast.success(`Імпортовано ${result.rows.length} URL зі Screaming Frog`);
   };
 
@@ -392,6 +410,9 @@ export default function ProjectPage() {
                 running={running}
                 runProgress={runProgress}
                 sfResult={sfResult}
+                onTechResult={(r) => saveAuditCache(projectId, activeAudit.id, { techAudit: r })}
+                onGscResult={(r) => saveAuditCache(projectId, activeAudit.id, { gscAudit: r })}
+                onGa4Result={(r) => saveAuditCache(projectId, activeAudit.id, { ga4Audit: r })}
                 aiProvider={(() => {
                   // Use defaultProvider if set and has a key
                   if (settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey) {
@@ -471,6 +492,9 @@ function AuditView({
   aiProvider,
   aiApiKey,
   aiModel,
+  onTechResult,
+  onGscResult,
+  onGa4Result,
 }: {
   audit: Audit;
   projectId: string;
@@ -485,6 +509,10 @@ function AuditView({
   aiProvider?: AIProvider;
   aiApiKey?: string;
   aiModel?: string;
+  // Колбеки для збереження результатів у кеш (батьківський store)
+  onTechResult?: (r: import("@/types").TechAuditResult) => void;
+  onGscResult?: (r: import("@/types").GscAuditResult) => void;
+  onGa4Result?: (r: import("@/types").Ga4AuditResult) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -651,12 +679,23 @@ function AuditView({
 
         {/* Технічний аудит — forceMount зберігає результати при перемиканні вкладок */}
         <TabsContent value="tech" className="mt-4" forceMount>
-          <TechAuditPanel domain={domain} sfResult={sfResult} />
+          <TechAuditPanel
+            domain={domain}
+            sfResult={sfResult}
+            initialResult={audit.cachedTechAudit}
+            onResult={onTechResult}
+          />
         </TabsContent>
 
         {/* GSC + GA4 — підключення Google та аналіз пошукового трафіку */}
         <TabsContent value="gsc" className="mt-4" forceMount>
-          <GscAuditPanel domain={domain} />
+          <GscAuditPanel
+            domain={domain}
+            initialGscAudit={audit.cachedGscAudit}
+            initialGa4Audit={audit.cachedGa4Audit}
+            onGscResult={onGscResult}
+            onGa4Result={onGa4Result}
+          />
         </TabsContent>
 
         {/* AI Аналіз — forceMount зберігає результат AI при перемиканні вкладок */}

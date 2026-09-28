@@ -222,6 +222,12 @@ export interface Audit {
   aiModel?: string;
   rulePacks: string[];
   error?: string;
+  // ─── Кешовані результати для збереженого проєкту ─────────────────────────
+  // Дозволяють відновити весь стан аудиту без повторного завантаження даних
+  cachedSfData?: SFImportResult | null;
+  cachedTechAudit?: TechAuditResult | null;
+  cachedGscAudit?: GscAuditResult | null;
+  cachedGa4Audit?: Ga4AuditResult | null;
 }
 
 // ─── Project ─────────────────────────────────────────────────────────────────

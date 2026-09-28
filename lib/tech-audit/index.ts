@@ -481,6 +481,13 @@ async function fetchPSI(url: string, strategy: "mobile" | "desktop", apiKey?: st
     const res = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(50000) });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      // 429 = перевищено ліміт запитів без API ключа (або вичерпано квоту)
+      if (res.status === 429) {
+        const hint = !apiKey
+          ? "Перевищено ліміт PSI API. Додайте API ключ PageSpeed Insights у налаштуваннях."
+          : "Перевищено квоту PSI API ключа. Спробуйте пізніше.";
+        return { score: null, lcp: null, cls: null, fcp: null, tbt: null, error: hint };
+      }
       return { score: null, lcp: null, cls: null, fcp: null, tbt: null, error: `HTTP ${res.status}: ${errText.slice(0, 100)}` };
     }
     const data = await res.json();
