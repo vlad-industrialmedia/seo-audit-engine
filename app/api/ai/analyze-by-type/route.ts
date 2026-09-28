@@ -111,15 +111,17 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
     }
 
     case "openrouter": {
+      const orModel = model || "anthropic/claude-sonnet-4-6";
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": "https://seo-audit-engine.vercel.app",
+          "X-Title": "SEO Audit Engine",
         },
         body: JSON.stringify({
-          model: model || "anthropic/claude-sonnet-4-6",
+          model: orModel,
           messages: [
             { role: "system", content: "Ти досвідчений SEO-спеціаліст. Відповідай лише валідним JSON." },
             { role: "user", content: prompt },
@@ -127,8 +129,12 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
           max_tokens: 4096,
         }),
       });
-      if (!res.ok) throw new Error(`OpenRouter error: ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`OpenRouter error ${res.status}: ${errBody.slice(0, 300)}`);
+      }
       const data = await res.json();
+      if (data.error) throw new Error(`OpenRouter: ${JSON.stringify(data.error)}`);
       return data.choices?.[0]?.message?.content || "";
     }
 
@@ -186,6 +192,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "provider та apiKey обов'язкові" }, { status: 400 });
     }
 
+    console.log(`[analyze-by-type] provider=${provider} model=${model || "(default)"} findings=${body.findings.length}`);
     const prompt = buildPrompt(body);
     const raw = await callAI(prompt, provider, apiKey, model);
 

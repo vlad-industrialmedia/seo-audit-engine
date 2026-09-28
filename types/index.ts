@@ -609,6 +609,87 @@ export interface SFResponseTimeCheck {
   note: string;
 }
 
+// ─── New SF extended checks ──────────────────────────────────────────────────
+
+export interface SFImagesAltCheck {
+  status: TechCheckStatus;
+  totalImages: number;
+  missingAlt: number;   // no alt attribute
+  emptyAlt: number;     // alt="" (decorative)
+  genericAlt: number;   // alt is filename, "image", "photo", etc.
+  note: string;
+}
+
+export interface SFInternalLinksCheck {
+  status: TechCheckStatus;
+  total: number;
+  orphanPages: number;   // 0 inlinks (not counting homepage)
+  poorlyLinked: number;  // 1–2 inlinks
+  wellLinked: number;    // 5+ inlinks
+  avgInlinks: number;
+  note: string;
+}
+
+export interface SFRedirectChainCheck {
+  status: TechCheckStatus;
+  totalRedirects: number;
+  longChains: number;    // 2+ hops
+  note: string;
+}
+
+export interface SFTitleH1MatchCheck {
+  status: TechCheckStatus;
+  total: number;
+  strongMismatch: number;  // no common words between title & H1
+  weakMismatch: number;    // few overlapping words
+  note: string;
+}
+
+export interface SFPaginationCheck {
+  status: TechCheckStatus;
+  total: number;
+  withRelNext: number;
+  withRelPrev: number;
+  paginated: number;
+  note: string;
+}
+
+// ─── Per-page sampling (live HTTP) ───────────────────────────────────────────
+
+export interface PageSampleAltIssue {
+  src: string;
+  issue: "missing" | "empty" | "generic" | "filename_only";
+  currentAlt: string;
+  suggestion: string;
+}
+
+export interface PageSampleCheck {
+  url: string;
+  pageType: string;
+  fetchOk: boolean;
+  error?: string;
+  imagesTotal: number;
+  imagesMissingAlt: number;
+  imagesEmptyAlt: number;
+  imagesGenericAlt: number;
+  altIssues: PageSampleAltIssue[];
+  schemaTypes: string[];
+  internalLinksCount: number;
+  externalLinksCount: number;
+  wordCount: number;
+  issues: string[];
+}
+
+export interface SFPageSamplingResult {
+  status: TechCheckStatus;
+  sampledCount: number;
+  pageTypeSampled: string[];
+  pages: PageSampleCheck[];
+  note: string;
+}
+
+// ─── Updated SF analysis ─────────────────────────────────────────────────────
+
 export interface SFAnalysis {
   httpStatus: SFHttpStatusCheck;
   canonical: SFCanonicalCheck;
@@ -621,6 +702,12 @@ export interface SFAnalysis {
   urlStructure: SFUrlCheck;
   crawlDepth: SFCrawlDepthCheck;
   responseTimes: SFResponseTimeCheck;
+  // Extended checks (require additional SF export sheets)
+  imagesAlt?: SFImagesAltCheck;
+  internalLinks?: SFInternalLinksCheck;
+  redirectChains?: SFRedirectChainCheck;
+  titleH1Match?: SFTitleH1MatchCheck;
+  pagination?: SFPaginationCheck;
 }
 
 export interface TechAuditResult {

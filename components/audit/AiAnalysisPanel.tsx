@@ -59,14 +59,24 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
     setLoading(true);
     setError(null);
     try {
+      // Slim down payload — strip large affectedUrls arrays before sending
+      const slimFindings = findings.slice(0, 60).map((f) => ({
+        ruleId: f.ruleId,
+        ruleTitle: f.ruleTitle,
+        severity: f.severity,
+        affectedCount: f.affectedCount ?? (f.affectedUrls?.length ?? 1),
+        pageType: f.pageType,
+        recommendation: f.recommendation,
+      }));
+
       const res = await fetch("/api/ai/analyze-by-type", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ findings, sfStats, domain, provider, apiKey, model }),
+        body: JSON.stringify({ findings: slimFindings, sfStats, domain, provider, apiKey, model }),
       });
       if (!res.ok) {
         const d = await res.json();
-        throw new Error(d.error || `HTTP ${res.status}`);
+        throw new Error(d.detail || d.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
       setResult(data.result as AiResult);

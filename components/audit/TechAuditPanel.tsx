@@ -13,6 +13,8 @@ import type {
   SFAnalysis,
   HreflangCheck,
   PageTechCheck,
+  SFPageSamplingResult,
+  PageSampleCheck,
 } from "@/types";
 import { analyzeSFData } from "@/lib/tech-audit/sf-analysis";
 
@@ -94,20 +96,68 @@ function StatPill({ label, value, warn }: { label: string; value: string | numbe
   );
 }
 
+/** Pick up to `perType` URLs per detected page-type group from SF rows */
+function samplePagesByType(
+  sfResult: SFImportResult,
+  perType = 2,
+  maxTotal = 20,
+): Array<{ url: string; pageType: string }> {
+  // Group indexable HTML pages by their detected type
+  const groups: Record<string, string[]> = {};
+  for (const row of sfResult.rows) {
+    if (
+      row.indexabilityStatus?.toLowerCase() !== "indexable" &&
+      row.indexabilityStatus?.toLowerCase() !== ""
+    ) continue;
+    const ct = (row.contentType ?? "").toLowerCase();
+    if (!ct.includes("text/html") && ct !== "") continue;
+
+    // Derive page type from common URL patterns
+    const url = row.address ?? "";
+    let type = "other";
+    if (/\/(blog|news|articles?|posts?)\//i.test(url)) type = "blog";
+    else if (/\/(cases?|portfolio|projects?|work)\//i.test(url)) type = "case";
+    else if (/\/(products?|catalog|shop|store|goods|tovar)\//i.test(url)) type = "product";
+    else if (/\/(services?|poslug|service)\//i.test(url)) type = "service";
+    else if (/\/(categor|category|katehor)\//i.test(url)) type = "category";
+    else if (/\/(about|pro-nas|contact|kontakt|team|about-us)\//i.test(url)) type = "info";
+    else if (url.replace(/^https?:\/\/[^/]+\/?$/, "").length < 3) type = "homepage";
+
+    if (!groups[type]) groups[type] = [];
+    groups[type].push(url);
+  }
+
+  const sampled: Array<{ url: string; pageType: string }> = [];
+  for (const [type, urls] of Object.entries(groups)) {
+    // Pick random subset of up to perType per group
+    const shuffled = [...urls].sort(() => Math.random() - 0.5);
+    for (const url of shuffled.slice(0, perType)) {
+      if (sampled.length >= maxTotal) break;
+      sampled.push({ url, pageType: type });
+    }
+    if (sampled.length >= maxTotal) break;
+  }
+  return sampled;
+}
+
 export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
   const [result, setResult] = useState<TechAuditResult | null>(null);
   const [sfAnalysis, setSfAnalysis] = useState<SFAnalysis | null>(null);
+  const [pageSampling, setPageSampling] = useState<SFPageSamplingResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [samplingLoading, setSamplingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runPsi, setRunPsi] = useState(false);
+  const [expandedPage, setExpandedPage] = useState<string | null>(null);
 
   async function runAudit() {
     setLoading(true);
     setError(null);
+    setPageSampling(null);
     try {
       // Run SF analysis client-side immediately (no HTTP, uses already-loaded data)
       if (sfResult?.rows && sfResult.rows.length > 0) {
-        setSfAnalysis(analyzeSFData(sfResult.rows));
+        setSfAnalysis(analyzeSFData(sfResult.rows, sfResult.images, sfResult.redirects));
       } else {
         setSfAnalysis(null);
       }
@@ -134,10 +184,46 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
       }
       const data = await res.json();
       setResult(data);
+
+      // Kick off per-page sampling in the background if SF data is available
+      if (sfResult?.rows && sfResult.rows.length > 0) {
+        runPageSampling(sfResult);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runPageSampling(sf: SFImportResult) {
+    setSamplingLoading(true);
+    try {
+      const pages = samplePagesByType(sf);
+      if (pages.length === 0) return;
+
+      const res = await fetch("/api/check-pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages, domain }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const checked: PageSampleCheck[] = data.pages ?? [];
+
+      const pageTypeSampled = Array.from(new Set(checked.map((p) => p.pageType)));
+      const hasIssue = checked.some((p) => p.issues.length > 0);
+      setPageSampling({
+        status: hasIssue ? "issue" : "ok",
+        sampledCount: checked.length,
+        pageTypeSampled,
+        pages: checked,
+        note: `Перевірено ${checked.length} сторінок із ${pageTypeSampled.length} типів`,
+      });
+    } catch {
+      // Sampling errors are non-fatal
+    } finally {
+      setSamplingLoading(false);
     }
   }
 
@@ -179,7 +265,7 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm">Перевірка технічних параметрів сайту…</p>
           {runPsi && <p className="text-xs">PageSpeed може займати до 45 секунд</p>}
-          {sfResult && <p className="text-xs">Аналіз {sfResult.rows.length.toLocaleString("uk")} сторінок із SF…</p>}
+          {sfResult && <p className="text-xs">Аналіз {sfResult.rows.length.toLocaleString("uk")} сторінок із SF + вибірка реальних…</p>}
         </div>
       )}
 
@@ -571,6 +657,201 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               </CheckRow>
             )}
 
+            {/* SF: Internal Links */}
+            {sfAnalysis?.internalLinks && (
+              <CheckRow title="[SF] Внутрішня перелінковка" status={sfAnalysis.internalLinks.status} note={sfAnalysis.internalLinks.note}>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  <StatPill label="Всього" value={sfAnalysis.internalLinks.total.toLocaleString("uk")} />
+                  <StatPill label="Сторінки-сироти (0 inlinks)" value={sfAnalysis.internalLinks.orphanPages} warn={sfAnalysis.internalLinks.orphanPages > 0} />
+                  <StatPill label="Слабо пов'язані (1–2)" value={sfAnalysis.internalLinks.poorlyLinked} warn={sfAnalysis.internalLinks.poorlyLinked > 0} />
+                  <StatPill label="Середнє inlinks" value={sfAnalysis.internalLinks.avgInlinks} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* SF: Redirect Chains */}
+            {sfAnalysis?.redirectChains && (
+              <CheckRow title="[SF] Ланцюжки редиректів" status={sfAnalysis.redirectChains.status} note={sfAnalysis.redirectChains.note}>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <StatPill label="Всього редиректів" value={sfAnalysis.redirectChains.totalRedirects} />
+                  <StatPill label="Довгі ланцюжки (2+ хопи)" value={sfAnalysis.redirectChains.longChains} warn={sfAnalysis.redirectChains.longChains > 0} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* SF: Title / H1 Match */}
+            {sfAnalysis?.titleH1Match && (
+              <CheckRow title="[SF] Відповідність Title ↔ H1" status={sfAnalysis.titleH1Match.status} note={sfAnalysis.titleH1Match.note}>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  <StatPill label="Всього сторінок" value={sfAnalysis.titleH1Match.total.toLocaleString("uk")} />
+                  <StatPill label="Повна розбіжність" value={sfAnalysis.titleH1Match.strongMismatch} warn={sfAnalysis.titleH1Match.strongMismatch > 0} />
+                  <StatPill label="Часткова розбіжність" value={sfAnalysis.titleH1Match.weakMismatch} warn={sfAnalysis.titleH1Match.weakMismatch > 0} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* SF: Pagination */}
+            {sfAnalysis?.pagination && (
+              <CheckRow title="[SF] Пагінація (rel=next/prev)" status={sfAnalysis.pagination.status} note={sfAnalysis.pagination.note}>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  <StatPill label="Всього URL" value={sfAnalysis.pagination.total.toLocaleString("uk")} />
+                  <StatPill label="Сторінок пагінації" value={sfAnalysis.pagination.paginated} />
+                  <StatPill label="З rel=next" value={sfAnalysis.pagination.withRelNext} />
+                  <StatPill label="З rel=prev" value={sfAnalysis.pagination.withRelPrev} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* SF: Images Alt (from SF images export) */}
+            {sfAnalysis?.imagesAlt && (
+              <CheckRow title="[SF] Alt-теги зображень" status={sfAnalysis.imagesAlt.status} note={sfAnalysis.imagesAlt.note}>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  <StatPill label="Всього зображень" value={sfAnalysis.imagesAlt.totalImages.toLocaleString("uk")} />
+                  <StatPill label="Без alt" value={sfAnalysis.imagesAlt.missingAlt} warn={sfAnalysis.imagesAlt.missingAlt > 0} />
+                  <StatPill label="Порожній alt" value={sfAnalysis.imagesAlt.emptyAlt} />
+                  <StatPill label="Неінформативний alt" value={sfAnalysis.imagesAlt.genericAlt} warn={sfAnalysis.imagesAlt.genericAlt > 0} />
+                </div>
+              </CheckRow>
+            )}
+
+            {/* ═══ SECTION: PER-PAGE SAMPLING ═══ */}
+            {(pageSampling || samplingLoading) && sfAnalysis && (
+              <SectionDivider label="Перевірка реальних сторінок (вибірка)" />
+            )}
+
+            {samplingLoading && (
+              <div className="py-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                Перевірка реальних сторінок сайту…
+              </div>
+            )}
+
+            {pageSampling && !samplingLoading && (
+              <div className="py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={pageSampling.status} />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                      Вибіркова перевірка сторінок
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">{pageSampling.note}</span>
+                </div>
+
+                <div className="space-y-2 mt-2">
+                  {pageSampling.pages.map((page) => {
+                    const isExpanded = expandedPage === page.url;
+                    const hasIssues = page.issues.length > 0;
+                    return (
+                      <div key={page.url} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-xs">
+                        <button
+                          onClick={() => setExpandedPage(isExpanded ? null : page.url)}
+                          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`flex-shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                              hasIssues
+                                ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                            }`}>
+                              {page.pageType}
+                            </span>
+                            <span className="text-gray-500 dark:text-gray-400 truncate">{page.url}</span>
+                          </div>
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            {!page.fetchOk ? (
+                              <span className="text-red-500">{page.error ?? "Помилка"}</span>
+                            ) : (
+                              <>
+                                {page.imagesTotal > 0 && (
+                                  <span className={page.imagesMissingAlt > 0 || page.imagesGenericAlt > 0 ? "text-orange-500" : "text-gray-400"}>
+                                    🖼 {page.imagesTotal} ({page.imagesMissingAlt + page.imagesGenericAlt} проблем)
+                                  </span>
+                                )}
+                                {page.wordCount > 0 && (
+                                  <span className={page.wordCount < 300 ? "text-orange-500" : "text-gray-400"}>
+                                    📝 {page.wordCount}сл.
+                                  </span>
+                                )}
+                                {page.schemaTypes.length > 0 && (
+                                  <span className="text-blue-400">Schema✓</span>
+                                )}
+                              </>
+                            )}
+                            <svg
+                              className={`w-3 h-3 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-1 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/30">
+                            <div className="grid grid-cols-4 gap-2 mb-2">
+                              <StatPill label="Зображень" value={page.imagesTotal} />
+                              <StatPill label="Без alt" value={page.imagesMissingAlt} warn={page.imagesMissingAlt > 0} />
+                              <StatPill label="Generic alt" value={page.imagesGenericAlt} warn={page.imagesGenericAlt > 0} />
+                              <StatPill label="Слів" value={page.wordCount} warn={page.wordCount > 0 && page.wordCount < 300} />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                              <StatPill label="Внутр. посил." value={page.internalLinksCount} warn={page.internalLinksCount < 3} />
+                              <StatPill label="Зовн. посил." value={page.externalLinksCount} />
+                              <StatPill label="Schema типів" value={page.schemaTypes.length} />
+                            </div>
+                            {page.schemaTypes.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {page.schemaTypes.map((t) => (
+                                  <span key={t} className="text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5 rounded font-mono">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {page.altIssues.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 mb-1">
+                                  Проблеми з alt у контентній зоні:
+                                </p>
+                                <div className="space-y-1.5">
+                                  {page.altIssues.map((issue, i) => (
+                                    <div key={i} className="rounded bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 p-2">
+                                      <div className="flex items-center gap-2 mb-0.5">
+                                        <span className={`px-1 py-0.5 rounded font-medium text-xs ${
+                                          issue.issue === "missing"
+                                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                            : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                                        }`}>
+                                          {issue.issue === "missing" ? "Відсутній alt" : issue.issue === "generic" ? "Неінформативний" : issue.issue}
+                                        </span>
+                                        {issue.currentAlt && (
+                                          <span className="text-gray-500 italic">"{issue.currentAlt}"</span>
+                                        )}
+                                      </div>
+                                      <p className="text-gray-500 dark:text-gray-400 truncate font-mono text-xs">{issue.src}</p>
+                                      <p className="text-blue-600 dark:text-blue-400 mt-0.5">💡 {issue.suggestion}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {page.issues.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {page.issues.map((iss, i) => (
+                                  <p key={i} className="text-orange-600 dark:text-orange-400">⚠ {iss}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ═══ SECTION: PERFORMANCE & SOCIAL ═══ */}
             {result && <SectionDivider label="Продуктивність і соціальні мережі" />}
 
@@ -715,12 +996,21 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                 <span>✦ [SF] Near-duplicate сторінки</span>
                 <span>✦ [SF] Структура URL (довжина, параметри)</span>
                 <span>✦ [SF] Глибина краулінгу</span>
+                <span>✦ [SF] Внутрішня перелінковка (orphan, inlinks)</span>
+                <span>✦ [SF] Ланцюжки редиректів (2+ хопи)</span>
+                <span>✦ [SF] Відповідність Title ↔ H1</span>
+                <span>✦ [SF] Пагінація (rel=next / rel=prev)</span>
+                <span>✦ [SF] Alt-теги зображень (missing/generic)</span>
+                <span>✦ Вибірка по 2 сторінки кожного типу</span>
+                <span>✦ Alt в контентній зоні (main/article)</span>
+                <span>✦ Schema.org на реальних сторінках</span>
+                <span>✦ Кількість слів і внутрішніх посилань</span>
               </>
             )}
           </div>
           {!sfResult && (
             <p className="mt-2 text-blue-500 dark:text-blue-400">
-              💡 Завантажте CSV зі Screaming Frog для розширеного аналізу ще +12 параметрів
+              💡 Завантажте CSV зі Screaming Frog для розширеного аналізу ще +17 параметрів
             </p>
           )}
         </div>

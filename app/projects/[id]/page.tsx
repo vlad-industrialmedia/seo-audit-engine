@@ -306,19 +306,20 @@ export default function ProjectPage() {
                 runProgress={runProgress}
                 sfResult={sfResult}
                 aiProvider={(() => {
-                  // Use defaultProvider if set and has a key; otherwise fall back to first validated provider
+                  // Use defaultProvider if set and has a key
                   if (settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey) {
                     return settings.defaultProvider;
                   }
+                  // Fall back to any provider with an apiKey (validated or not)
                   return (Object.keys(settings.aiProviders) as AIProvider[]).find(
-                    (p) => settings.aiProviders[p]?.validated && settings.aiProviders[p]?.apiKey
+                    (p) => settings.aiProviders[p]?.apiKey
                   );
                 })()}
                 aiApiKey={(() => {
                   const p = settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey
                     ? settings.defaultProvider
                     : (Object.keys(settings.aiProviders) as AIProvider[]).find(
-                        (p2) => settings.aiProviders[p2]?.validated && settings.aiProviders[p2]?.apiKey
+                        (p2) => settings.aiProviders[p2]?.apiKey
                       );
                   return p ? (settings.aiProviders[p]?.apiKey ?? "") : "";
                 })()}
@@ -326,7 +327,7 @@ export default function ProjectPage() {
                   const p = settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey
                     ? settings.defaultProvider
                     : (Object.keys(settings.aiProviders) as AIProvider[]).find(
-                        (p2) => settings.aiProviders[p2]?.validated && settings.aiProviders[p2]?.apiKey
+                        (p2) => settings.aiProviders[p2]?.apiKey
                       );
                   return p ? (settings.aiProviders[p]?.model ?? "") : "";
                 })()}
