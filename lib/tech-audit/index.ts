@@ -12,6 +12,7 @@ import type {
   SecurityHeadersCheck,
   AnalyticsCheck,
   CompressionCheck,
+  ServerInfoCheck,
 } from "@/types";
 
 const BOT_UA =
@@ -633,21 +634,77 @@ function checkCompressionFromHeaders(headers: Headers): CompressionCheck {
   return { status: "issue", encoding: null, note: "Стиснення не виявлено. Увімкніть Gzip або Brotli на сервері." };
 }
 
-// ─── Combined homepage check (structured data + OG + security + analytics + compression) ─
+// ─── Server info check (from homepage headers + favicon HEAD) ────────────────
+function detectCDN(headers: Headers): string | null {
+  if (headers.get("cf-ray") || headers.get("cf-cache-status")) return "Cloudflare";
+  if (headers.get("x-served-by")?.includes("cache")) return "Fastly";
+  if ((headers.get("x-cache") ?? "").toLowerCase().includes("hit")) return "CDN (generic/Varnish)";
+  if (headers.get("x-amz-cf-id") || headers.get("x-amz-request-id")) return "AWS CloudFront";
+  if (headers.get("x-azure-ref")) return "Azure CDN";
+  if (headers.get("x-goog-") || headers.get("via")?.includes("google")) return "Google CDN";
+  if (headers.get("server")?.toLowerCase().includes("cloudflare")) return "Cloudflare";
+  return null;
+}
+
+async function checkServerInfo(domain: string, html: string, headers: Headers, ttfbMs: number): Promise<ServerInfoCheck> {
+  const server = headers.get("server") ?? null;
+  const cdn = detectCDN(headers);
+  const cacheControl = headers.get("cache-control") ?? null;
+
+  const hasViewportMeta = /<meta[^>]+name=["']viewport["']/i.test(html);
+  const hasLangAttr = /<html[^>]+lang=["'][^"']+["']/i.test(html);
+
+  // Quick check for favicon
+  let hasFavicon = /<link[^>]+rel=["'][^"']*icon[^"']*["']/i.test(html);
+  if (!hasFavicon) {
+    const faviconStatus = await safeStatus(`https://${domain}/favicon.ico`);
+    hasFavicon = faviconStatus !== null && faviconStatus < 400;
+  }
+
+  const parts: string[] = [];
+  let status: ServerInfoCheck["status"] = "ok";
+
+  // TTFB assessment
+  if (ttfbMs > 600) {
+    status = "issue";
+    parts.push(`⚠️ TTFB: ${ttfbMs}ms (норма < 600ms).`);
+  } else if (ttfbMs > 0) {
+    parts.push(`TTFB: ${ttfbMs}ms. ✅`);
+  }
+
+  if (server) parts.push(`Сервер: ${server}.`);
+  if (cdn) parts.push(`CDN: ${cdn}.`);
+  if (cacheControl) parts.push(`Cache-Control: ${cacheControl}.`);
+
+  if (!hasViewportMeta) { if (status === "ok") status = "issue"; parts.push("⚠️ Відсутній <meta name=\"viewport\"> (мобільна оптимізація)."); }
+  if (!hasLangAttr) { if (status === "ok") status = "issue"; parts.push("⚠️ Відсутній атрибут lang у <html>."); }
+  if (!hasFavicon) { if (status === "ok") status = "issue"; parts.push("⚠️ Favicon не знайдено."); }
+
+  if (parts.length === 0 || (hasViewportMeta && hasLangAttr && hasFavicon && ttfbMs <= 600)) {
+    parts.unshift("Базова конфігурація сервера в нормі. ✅");
+  }
+
+  return { status, server, cdn, cacheControl, ttfbMs, hasViewportMeta, hasLangAttr, hasFavicon, note: parts.join(" ") };
+}
+
+// ─── Combined homepage check (structured data + OG + security + analytics + compression + serverInfo) ─
 async function checkHomepage(domain: string): Promise<{
   structuredData: StructuredDataCheck;
   openGraph: OpenGraphCheck;
   securityHeaders: SecurityHeadersCheck;
   analytics: AnalyticsCheck;
   compression: CompressionCheck;
+  serverInfo: ServerInfoCheck;
 }> {
   const url = `https://${domain}/`;
   try {
+    const t0 = Date.now();
     const res = await fetch(url, {
       headers: { "User-Agent": BOT_UA, Accept: "text/html", "Accept-Encoding": "gzip, br" },
       signal: AbortSignal.timeout(15000),
       redirect: "follow",
     });
+    const ttfbMs = Date.now() - t0;
 
     const html = await res.text();
     const headers = res.headers;
@@ -658,6 +715,7 @@ async function checkHomepage(domain: string): Promise<{
       securityHeaders: checkSecurityHeadersFromHeaders(headers),
       analytics: checkAnalyticsFromHtml(html),
       compression: checkCompressionFromHeaders(headers),
+      serverInfo: await checkServerInfo(domain, html, headers, ttfbMs),
     };
   } catch (e) {
     const errMsg = `Не вдалось завантажити головну сторінку: ${(e as Error).message}`;
@@ -668,6 +726,7 @@ async function checkHomepage(domain: string): Promise<{
       securityHeaders: { ...unknown, hsts: false, xFrameOptions: false, xContentTypeOptions: false, csp: false },
       analytics: { ...unknown, hasGA4: false, hasGTM: false, hasYandexMetrika: false },
       compression: { ...unknown, encoding: null },
+      serverInfo: { ...unknown, server: null, cdn: null, cacheControl: null, ttfbMs: null, hasViewportMeta: false, hasLangAttr: false, hasFavicon: false },
     };
   }
 }
@@ -712,5 +771,6 @@ export async function runTechAudit(
     securityHeaders: homepageChecks.securityHeaders,
     analytics: homepageChecks.analytics,
     compression: homepageChecks.compression,
+    serverInfo: homepageChecks.serverInfo,
   };
 }

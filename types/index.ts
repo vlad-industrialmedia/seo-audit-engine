@@ -467,6 +467,119 @@ export interface CompressionCheck {
   note: string;
 }
 
+// ─── Server / Infrastructure checks (from homepage fetch) ───────────────────
+export interface ServerInfoCheck {
+  status: TechCheckStatus;
+  server: string | null;        // nginx, Apache, etc.
+  cdn: string | null;           // Cloudflare, Fastly, etc.
+  cacheControl: string | null;  // cache-control header value
+  ttfbMs: number | null;        // time to first byte
+  hasViewportMeta: boolean;     // <meta name="viewport">
+  hasLangAttr: boolean;         // <html lang="...">
+  hasFavicon: boolean;          // /favicon.ico resolves
+  note: string;
+}
+
+// ─── SF-based analysis (from Screaming Frog data, no extra HTTP) ────────────
+export interface SFHttpStatusCheck {
+  status: TechCheckStatus;
+  total: number;
+  ok200: number;
+  redirect3xx: number;
+  error4xx: number;
+  error5xx: number;
+  note: string;
+}
+
+export interface SFCanonicalCheck {
+  status: TechCheckStatus;
+  total: number;
+  withCanonical: number;
+  withoutCanonical: number;
+  selfCanonical: number;
+  crossCanonical: number;
+  note: string;
+}
+
+export interface SFIndexabilityCheck {
+  status: TechCheckStatus;
+  total: number;
+  indexable: number;
+  nonIndexable: number;
+  noindexMeta: number;
+  noindexHeader: number;
+  byRobots: number;
+  byCanonical: number;
+  note: string;
+}
+
+export interface SFTitleCheck {
+  status: TechCheckStatus;
+  total: number;
+  missing: number;
+  tooShort: number;
+  tooLong: number;
+  duplicates: number;
+  note: string;
+}
+
+export interface SFDescriptionCheck {
+  status: TechCheckStatus;
+  total: number;
+  missing: number;
+  tooShort: number;
+  tooLong: number;
+  duplicates: number;
+  note: string;
+}
+
+export interface SFH1Check {
+  status: TechCheckStatus;
+  total: number;
+  missing: number;
+  multiple: number;
+  note: string;
+}
+
+export interface SFContentCheck {
+  status: TechCheckStatus;
+  total: number;
+  thinContent: number;
+  orphanPages: number;
+  nearDuplicates: number;
+  note: string;
+}
+
+export interface SFUrlCheck {
+  status: TechCheckStatus;
+  total: number;
+  tooLong: number;
+  withParameters: number;
+  deepUrls: number;
+  note: string;
+}
+
+export interface SFCrawlDepthCheck {
+  status: TechCheckStatus;
+  avgDepth: number;
+  maxDepth: number;
+  deepPages: number;
+  distribution: Record<string, number>;
+  note: string;
+}
+
+export interface SFAnalysis {
+  httpStatus: SFHttpStatusCheck;
+  canonical: SFCanonicalCheck;
+  indexability: SFIndexabilityCheck;
+  titles: SFTitleCheck;
+  descriptions: SFDescriptionCheck;
+  h1s: SFH1Check;
+  content: SFContentCheck;
+  urlStructure: SFUrlCheck;
+  crawlDepth: SFCrawlDepthCheck;
+}
+
 export interface TechAuditResult {
   domain: string;
   checkedAt: string;
@@ -480,6 +593,7 @@ export interface TechAuditResult {
   securityHeaders?: SecurityHeadersCheck;
   analytics?: AnalyticsCheck;
   compression?: CompressionCheck;
+  serverInfo?: ServerInfoCheck;
   error?: string;
 }
 
