@@ -75,7 +75,8 @@ export default function SettingsPage() {
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {AI_PROVIDERS.map(({ id }) => {
-              const providerSettings = settings.aiProviders[id];
+              // Захист від undefined — якщо старий localStorage не має нового провайдера
+              const providerSettings = settings.aiProviders[id] ?? { apiKey: "", validated: false };
               const isConfigured = !!providerSettings.apiKey;
               const isValidated = providerSettings.validated;
 

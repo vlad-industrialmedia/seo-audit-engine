@@ -334,20 +334,35 @@ export const useProjectStore = create<ProjectStore>()(
     }),
     {
       name: "seo-audit-projects",
-      // Don't persist API keys in plaintext in localStorage — just omit them
+      // Зберігаємо стан у localStorage; API ключі включаємо (локальний застосунок)
       partialize: (state) => ({
         projects: state.projects,
         currentProjectId: state.currentProjectId,
         settings: {
           ...state.settings,
           aiProviders: Object.fromEntries(
-            Object.entries(state.settings.aiProviders).map(([k, v]) => [
-              k,
-              { ...v, apiKey: v.apiKey }, // Store key — user accepted by using local app
-            ])
+            Object.entries(state.settings.aiProviders).map(([k, v]) => [k, { ...v }])
           ),
         },
       }),
+      // Merge дефолтів поверх збереженого стану — щоб нові провайдери з'являлись
+      // автоматично після оновлення без необхідності чистити localStorage
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<typeof currentState>;
+        const mergedProviders = {
+          ...currentState.settings.aiProviders,
+          ...(persisted?.settings?.aiProviders ?? {}),
+        };
+        return {
+          ...currentState,
+          ...persisted,
+          settings: {
+            ...currentState.settings,
+            ...(persisted?.settings ?? {}),
+            aiProviders: mergedProviders,
+          },
+        };
+      },
     }
   )
 );

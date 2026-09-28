@@ -20,7 +20,8 @@ interface ApiKeyCardProps {
 
 export function ApiKeyCard({ provider }: ApiKeyCardProps) {
   const { settings, setApiKey, setApiKeyValidated, setDefaultProvider, setProviderModel } = useProjectStore();
-  const providerSettings = settings.aiProviders[provider];
+  // Захист від undefined при rehydrate зі старого localStorage
+  const providerSettings = settings.aiProviders[provider] ?? { apiKey: "", validated: false, model: undefined };
   const config = AI_PROVIDER_CONFIGS[provider];
 
   const [showKey, setShowKey] = useState(false);
