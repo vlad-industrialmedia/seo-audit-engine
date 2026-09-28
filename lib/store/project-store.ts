@@ -46,6 +46,7 @@ interface ProjectStore {
       techAudit?: TechAuditResult | null;
       gscAudit?: GscAuditResult | null;
       ga4Audit?: Ga4AuditResult | null;
+      aiResult?: import("@/types").AiAuditAnalysis | null;  // кеш AI-аудиту по типах сторінок
     }
   ) => void;
 
@@ -333,6 +334,7 @@ export const useProjectStore = create<ProjectStore>()(
                           ...(cache.techAudit !== undefined && { cachedTechAudit: cache.techAudit }),
                           ...(cache.gscAudit !== undefined && { cachedGscAudit: cache.gscAudit }),
                           ...(cache.ga4Audit !== undefined && { cachedGa4Audit: cache.ga4Audit }),
+                          ...(cache.aiResult !== undefined && { cachedAiResult: cache.aiResult }),
                         }
                       : a
                   ),

@@ -1,21 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Finding, PageType, AIProvider } from "@/types";
-
-interface PageTypeAnalysis {
-  pageType: string;
-  pageCount: number;
-  issueCount: number;
-  priority: "critical" | "high" | "medium" | "low";
-  summary: string;
-  recommendations: string[];
-}
-
-interface AiResult {
-  overallSummary: string;
-  pageTypeAnalyses: PageTypeAnalysis[];
-}
+import type { Finding, PageType, AIProvider, AiAuditAnalysis } from "@/types";
 
 interface Props {
   findings: Finding[];
@@ -29,6 +15,9 @@ interface Props {
   provider: AIProvider;
   apiKey: string;
   model: string;
+  // Кешування результату між перезавантаженнями проєкту
+  initialResult?: AiAuditAnalysis | null;
+  onResult?: (result: AiAuditAnalysis) => void;
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -45,8 +34,18 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "Низьке",
 };
 
-export default function AiAnalysisPanel({ findings, sfStats, domain, provider, apiKey, model }: Props) {
-  const [result, setResult] = useState<AiResult | null>(null);
+export default function AiAnalysisPanel({
+  findings,
+  sfStats,
+  domain,
+  provider,
+  apiKey,
+  model,
+  initialResult,
+  onResult,
+}: Props) {
+  // Ініціалізуємо результат з кешу, якщо він є
+  const [result, setResult] = useState<AiAuditAnalysis | null>(initialResult ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -59,7 +58,7 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
     setLoading(true);
     setError(null);
     try {
-      // Slim down payload — strip large affectedUrls arrays before sending
+      // Зменшуємо payload — прибираємо великі масиви affectedUrls перед відправкою
       const slimFindings = findings.slice(0, 60).map((f) => ({
         ruleId: f.ruleId,
         ruleTitle: f.ruleTitle,
@@ -74,12 +73,29 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ findings: slimFindings, sfStats, domain, provider, apiKey, model }),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.detail || d.error || `HTTP ${res.status}`);
+
+      // Захисний парсинг: завжди читаємо текст спочатку, потім парсимо JSON
+      const rawText = await res.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        // Сервер повернув не-JSON (наприклад, HTML-сторінку помилки)
+        throw new Error(`Сервер повернув неочікувану відповідь: ${rawText.slice(0, 200)}`);
       }
-      const data = await res.json();
-      setResult(data.result as AiResult);
+
+      const body = parsed as Record<string, unknown>;
+
+      if (!res.ok) {
+        const detail = (body.detail as string) || (body.error as string) || `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+
+      const aiResult = body.result as AiAuditAnalysis;
+      setResult(aiResult);
+
+      // Зберігаємо в кеш проєкту
+      onResult?.(aiResult);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -96,6 +112,8 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
     });
   }
 
+  const hasNoFindings = findings.length === 0 && !result;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -104,10 +122,10 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
           disabled={loading || findings.length === 0}
           className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {loading ? "AI аналіз…" : "Запустити AI аналіз"}
+          {loading ? "AI аналіз…" : result ? "Оновити AI аналіз" : "Запустити AI аналіз"}
         </button>
-        {findings.length === 0 && (
-          <span className="text-xs text-gray-400">Спочатку запустіть аудит</span>
+        {hasNoFindings && (
+          <span className="text-xs text-gray-400">Спочатку запустіть аудит Screaming Frog</span>
         )}
       </div>
 
@@ -126,13 +144,20 @@ export default function AiAnalysisPanel({ findings, sfStats, domain, provider, a
 
       {result && !loading && (
         <div className="space-y-4">
-          {/* Overall summary */}
+          {/* Загальний висновок */}
           <div className="p-4 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl">
-            <h3 className="text-sm font-semibold text-violet-800 dark:text-violet-300 mb-2">Загальний висновок</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-violet-800 dark:text-violet-300">Загальний висновок</h3>
+              {result.provider && (
+                <span className="text-xs text-violet-500 dark:text-violet-400 opacity-70">
+                  {result.provider} / {result.model}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">{result.overallSummary}</p>
           </div>
 
-          {/* Per-page-type analyses */}
+          {/* Аналіз по типах сторінок */}
           <div className="space-y-2">
             {result.pageTypeAnalyses.map((analysis) => {
               const isOpen = expanded.has(analysis.pageType);

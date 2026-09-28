@@ -27,6 +27,11 @@ export function ExportModal({ audit, open, onOpenChange }: ExportModalProps) {
     includeFindings: true,
     includeEvidence: false,
     includeDeveloperHints: true,
+    // Нові секції: включаємо автоматично якщо дані є
+    includeTechAudit: !!audit.cachedTechAudit,
+    includeGscAudit: !!audit.cachedGscAudit,
+    includeGa4Audit: !!audit.cachedGa4Audit,
+    includeAiAnalysis: !!audit.cachedAiResult,
     severityFilter: ["critical", "high", "medium"],
     checkedFilter: "all",
   });
@@ -129,20 +134,51 @@ export function ExportModal({ audit, open, onOpenChange }: ExportModalProps) {
             <Label className="text-sm font-medium block">Включити в звіт</Label>
             {[
               { key: "includeSummary", label: "Зведення" },
-              { key: "includeFindings", label: "Список проблем" },
+              { key: "includeFindings", label: "Список проблем (SF)" },
               { key: "includeEvidence", label: "Докази (JSON)" },
               { key: "includeDeveloperHints", label: "Підказки розробнику" },
-            ].map(({ key, label }) => (
-              <label key={key} className="flex items-center gap-2 cursor-pointer">
+              {
+                key: "includeTechAudit",
+                label: "Технічний аудит",
+                disabled: !audit.cachedTechAudit,
+                hint: !audit.cachedTechAudit ? " (не виконано)" : "",
+              },
+              {
+                key: "includeGscAudit",
+                label: "Google Search Console",
+                disabled: !audit.cachedGscAudit,
+                hint: !audit.cachedGscAudit ? " (не виконано)" : "",
+              },
+              {
+                key: "includeGa4Audit",
+                label: "Google Analytics 4",
+                disabled: !audit.cachedGa4Audit,
+                hint: !audit.cachedGa4Audit ? " (не виконано)" : "",
+              },
+              {
+                key: "includeAiAnalysis",
+                label: "AI-аудит",
+                disabled: !audit.cachedAiResult,
+                hint: !audit.cachedAiResult ? " (не виконано)" : "",
+              },
+            ].map(({ key, label, disabled, hint }) => (
+              <label
+                key={key}
+                className={`flex items-center gap-2 ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+              >
                 <input
                   type="checkbox"
                   checked={options[key as keyof ExportOptions] as boolean}
                   onChange={(e) =>
                     setOptions((p) => ({ ...p, [key]: e.target.checked }))
                   }
+                  disabled={disabled}
                   className="rounded"
                 />
-                <span className="text-sm">{label}</span>
+                <span className="text-sm">
+                  {label}
+                  {hint && <span className="text-muted-foreground">{hint}</span>}
+                </span>
               </label>
             ))}
           </div>

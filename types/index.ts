@@ -228,6 +228,7 @@ export interface Audit {
   cachedTechAudit?: TechAuditResult | null;
   cachedGscAudit?: GscAuditResult | null;
   cachedGa4Audit?: Ga4AuditResult | null;
+  cachedAiResult?: AiAuditAnalysis | null;  // результат AI-аудиту (по типах сторінок)
 }
 
 // ─── Project ─────────────────────────────────────────────────────────────────
@@ -1001,6 +1002,10 @@ export interface ExportOptions {
   includeFindings: boolean;
   includeEvidence: boolean;
   includeDeveloperHints: boolean;
+  includeTechAudit: boolean;     // технічний аудит (HTTP/2, PageSpeed, тощо)
+  includeGscAudit: boolean;      // Google Search Console дані
+  includeGa4Audit: boolean;      // Google Analytics 4 дані
+  includeAiAnalysis: boolean;    // AI-аудит по типах сторінок
   severityFilter: Severity[];
   checkedFilter: "all" | "checked" | "unchecked";
 }

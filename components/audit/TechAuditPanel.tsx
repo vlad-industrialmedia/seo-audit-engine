@@ -269,14 +269,21 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult, onResult, 
           sfTotalUrls,
         }),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || `HTTP ${res.status}`);
+      // Захисний парсинг: завжди читаємо текст, потім JSON — уникаємо "Unexpected token 'A'"
+      const rawText = await res.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`Сервер повернув неочікувану відповідь: ${rawText.slice(0, 200)}`);
       }
-      const data = await res.json();
-      setResult(data);
+      if (!res.ok) {
+        const err = data as Record<string, unknown>;
+        throw new Error((err.error as string) || `HTTP ${res.status}`);
+      }
+      setResult(data as import("@/types").TechAuditResult);
       // Сповіщаємо батьківський компонент про результат для збереження в кеш
-      onResult?.(data);
+      onResult?.(data as import("@/types").TechAuditResult);
 
       // Kick off per-page sampling in the background if SF data is available
       if (sfResult?.rows && sfResult.rows.length > 0) {

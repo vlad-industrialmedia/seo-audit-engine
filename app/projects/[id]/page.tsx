@@ -413,6 +413,7 @@ export default function ProjectPage() {
                 onTechResult={(r) => saveAuditCache(projectId, activeAudit.id, { techAudit: r })}
                 onGscResult={(r) => saveAuditCache(projectId, activeAudit.id, { gscAudit: r })}
                 onGa4Result={(r) => saveAuditCache(projectId, activeAudit.id, { ga4Audit: r })}
+                onAiResult={(r) => saveAuditCache(projectId, activeAudit.id, { aiResult: r })}
                 aiProvider={(() => {
                   // Use defaultProvider if set and has a key
                   if (settings.defaultProvider && settings.aiProviders[settings.defaultProvider]?.apiKey) {
@@ -495,6 +496,7 @@ function AuditView({
   onTechResult,
   onGscResult,
   onGa4Result,
+  onAiResult,
 }: {
   audit: Audit;
   projectId: string;
@@ -513,6 +515,7 @@ function AuditView({
   onTechResult?: (r: import("@/types").TechAuditResult) => void;
   onGscResult?: (r: import("@/types").GscAuditResult) => void;
   onGa4Result?: (r: import("@/types").Ga4AuditResult) => void;
+  onAiResult?: (r: import("@/types").AiAuditAnalysis) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -708,6 +711,8 @@ function AuditView({
               provider={aiProvider ?? "anthropic"}
               apiKey={aiApiKey ?? ""}
               model={aiModel ?? ""}
+              initialResult={audit.cachedAiResult}
+              onResult={onAiResult}
             />
           ) : (
             <Card className="border-dashed">
