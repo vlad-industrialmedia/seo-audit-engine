@@ -57,21 +57,46 @@ function AssessmentBadge({ assessment }: { assessment: "safe" | "review" | "risk
   );
 }
 
+// Посилання для зовнішньої перевірки результатів аудиту
+type VerifyLink = { label: string; url: string };
+
 function CheckRow({
   title,
   status,
   note,
+  verifyLinks,
   children,
 }: {
   title: string;
   status: TechCheckStatus;
   note: string;
+  // Масив посилань на зовнішні сервіси для верифікації результату
+  verifyLinks?: VerifyLink[];
   children?: React.ReactNode;
 }) {
   return (
     <div className="py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
       <div className="flex items-center justify-between gap-3 mb-1">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{title}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{title}</span>
+          {/* Посилання на зовнішні сервіси перевірки */}
+          {verifyLinks && verifyLinks.length > 0 && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {verifyLinks.map((link) => (
+                <a
+                  key={link.url}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Перевірити: ${link.label}`}
+                  className="inline-flex items-center gap-0.5 text-xs text-blue-500 hover:text-blue-700 hover:underline border border-blue-200 hover:border-blue-400 rounded px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-400 transition-colors"
+                >
+                  {link.label} ↗
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
         <StatusBadge status={status} />
       </div>
       {note && <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{note}</p>}
@@ -144,6 +169,27 @@ function samplePagesByType(
 
 export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
   const [result, setResult] = useState<TechAuditResult | null>(null);
+
+  // ─── URL для зовнішніх сервісів верифікації ───────────────────────────────
+  // Будуємо посилання один раз на базі домену проєкту
+  const domainUrl = domain.startsWith("http") ? domain : `https://${domain}`;
+  const domainEncoded = encodeURIComponent(domainUrl);
+  const domainHost = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  const ext = {
+    pagespeed:    `https://pagespeed.web.dev/analysis?url=${domainEncoded}`,
+    richResults:  `https://search.google.com/test/rich-results?url=${domainEncoded}`,
+    schemaOrg:    `https://validator.schema.org/#url=${domainEncoded}`,
+    mobileFriend: `https://search.google.com/test/mobile-friendly?url=${domainEncoded}`,
+    secHeaders:   `https://securityheaders.com/?q=${domainEncoded}&followRedirects=on`,
+    sslLabs:      `https://www.ssllabs.com/ssltest/analyze.html?d=${domainHost}&hideResults=on`,
+    ogDebug:      `https://www.opengraph.xyz/url/${domainEncoded}`,
+    robotsTxt:    `${domainUrl}/robots.txt`,
+    sitemapXml:   `${domainUrl}/sitemap.xml`,
+    hreflangChk:  `https://hreflang.org/tester/?url=${domainEncoded}`,
+    redirectChk:  `https://httpstatus.io/?url=${domainEncoded}`,
+    gtmetrix:     `https://gtmetrix.com/?url=${domainEncoded}`,
+  };
   const [sfAnalysis, setSfAnalysis] = useState<SFAnalysis | null>(null);
   const [pageSampling, setPageSampling] = useState<SFPageSamplingResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -325,7 +371,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Mirror */}
             {result && (
-              <CheckRow title="Основне дзеркало (www / non-www)" status={result.mirror.status} note={result.mirror.note}>
+              <CheckRow title="Основне дзеркало (www / non-www)" status={result.mirror.status} note={result.mirror.note}
+                verifyLinks={[{ label: "httpstatus.io", url: ext.redirectChk }]}
+              >
                 <div className="flex gap-4 text-xs text-gray-400">
                   {result.mirror.wwwStatusCode !== null && (
                     <span>www → {result.mirror.wwwStatusCode} · {result.mirror.wwwFinalUrl}</span>
@@ -339,12 +387,16 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* HTTPS */}
             {result && (
-              <CheckRow title="HTTPS / HTTP редирект" status={result.https.status} note={result.https.note} />
+              <CheckRow title="HTTPS / HTTP редирект" status={result.https.status} note={result.https.note}
+                verifyLinks={[{ label: "SSL Labs", url: ext.sslLabs }]}
+              />
             )}
 
             {/* Server Info */}
             {result?.serverInfo && (
-              <CheckRow title="Сервер / CDN / TTFB" status={result.serverInfo.status} note={result.serverInfo.note}>
+              <CheckRow title="Сервер / CDN / TTFB" status={result.serverInfo.status} note={result.serverInfo.note}
+                verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }, { label: "GTmetrix", url: ext.gtmetrix }]}
+              >
                 <div className="grid grid-cols-3 gap-2 mt-1">
                   <StatPill label="TTFB" value={result.serverInfo.ttfbMs !== null ? `${result.serverInfo.ttfbMs}ms` : "н/д"} warn={(result.serverInfo.ttfbMs ?? 0) > 600} />
                   <StatPill label="Сервер" value={result.serverInfo.server ?? "—"} />
@@ -375,12 +427,16 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Compression */}
             {result?.compression && (
-              <CheckRow title="Стиснення (Gzip / Brotli)" status={result.compression.status} note={result.compression.note} />
+              <CheckRow title="Стиснення (Gzip / Brotli)" status={result.compression.status} note={result.compression.note}
+                verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }]}
+              />
             )}
 
             {/* Hreflang */}
             {result?.hreflang && (
-              <CheckRow title="Hreflang (мовні версії)" status={result.hreflang.status} note={result.hreflang.note}>
+              <CheckRow title="Hreflang (мовні версії)" status={result.hreflang.status} note={result.hreflang.note}
+                verifyLinks={[{ label: "hreflang.org", url: ext.hreflangChk }]}
+              >
                 {result.hreflang.hasHreflang && (
                   <div className="flex flex-wrap gap-2 mt-1">
                     <div className="grid grid-cols-3 gap-2 w-full">
@@ -404,7 +460,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Page Tech */}
             {result?.pageTech && (
-              <CheckRow title="Технічні теги сторінки" status={result.pageTech.status} note={result.pageTech.note}>
+              <CheckRow title="Технічні теги сторінки" status={result.pageTech.status} note={result.pageTech.note}
+                verifyLinks={[{ label: "Mobile Test", url: ext.mobileFriend }, { label: "PageSpeed", url: ext.pagespeed }]}
+              >
                 <div className="flex flex-wrap gap-2 mt-1">
                   {[
                     { ok: result.pageTech.hasSelfCanonical, label: "self-canonical" },
@@ -433,7 +491,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Security Headers */}
             {result?.securityHeaders && (
-              <CheckRow title="Заголовки безпеки" status={result.securityHeaders.status} note={result.securityHeaders.note}>
+              <CheckRow title="Заголовки безпеки" status={result.securityHeaders.status} note={result.securityHeaders.note}
+                verifyLinks={[{ label: "securityheaders.com", url: ext.secHeaders }]}
+              >
                 <div className="flex flex-wrap gap-2 mt-1">
                   {[
                     { key: "hsts", label: "HSTS" },
@@ -458,7 +518,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Custom 404 */}
             {result?.custom404 && (
-              <CheckRow title="Кастомна 404-сторінка" status={result.custom404.status} note={result.custom404.note}>
+              <CheckRow title="Кастомна 404-сторінка" status={result.custom404.status} note={result.custom404.note}
+                verifyLinks={[{ label: "Перевірити 404", url: `${domainUrl}/seo-audit-test-404-page-nonexistent` }]}
+              >
                 <div className="flex flex-wrap gap-2 mt-1">
                   {[
                     { ok: result.custom404.returns404, label: "HTTP 404 для неіснуючих URL" },
@@ -482,7 +544,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* robots.txt */}
             {result && (
-              <CheckRow title="robots.txt" status={result.robotsTxt.status} note={result.robotsTxt.note}>
+              <CheckRow title="robots.txt" status={result.robotsTxt.status} note={result.robotsTxt.note}
+                verifyLinks={[{ label: "robots.txt", url: ext.robotsTxt }]}
+              >
                 {result.robotsTxt.sitemapUrls.length > 0 && (
                   <p className="text-xs text-gray-400 mb-2">
                     Sitemap у robots.txt: {result.robotsTxt.sitemapUrls.map((u) => (
@@ -516,7 +580,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Sitemap */}
             {result && (
-              <CheckRow title="Sitemap.xml" status={result.sitemap.status} note={result.sitemap.note}>
+              <CheckRow title="Sitemap.xml" status={result.sitemap.status} note={result.sitemap.note}
+                verifyLinks={[{ label: "sitemap.xml", url: ext.sitemapXml }]}
+              >
                 {result.sitemap.sfComparison && (
                   <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg text-xs space-y-2">
                     <p className="font-medium text-blue-800 dark:text-blue-300">Порівняння sitemap vs Screaming Frog</p>
@@ -962,7 +1028,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* PageSpeed */}
             {result?.pageSpeed && (
-              <CheckRow title="PageSpeed (мобільний)" status={result.pageSpeed.status} note={result.pageSpeed.note}>
+              <CheckRow title="PageSpeed (мобільний)" status={result.pageSpeed.status} note={result.pageSpeed.note}
+                verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }, { label: "Mobile Test", url: ext.mobileFriend }]}
+              >
                 {result.pageSpeed.performanceScore !== null && (
                   <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
                     <div className="flex items-center gap-1">
@@ -993,7 +1061,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Open Graph */}
             {result?.openGraph && (
-              <CheckRow title="Open Graph / Social Meta" status={result.openGraph.status} note={result.openGraph.note}>
+              <CheckRow title="Open Graph / Social Meta" status={result.openGraph.status} note={result.openGraph.note}
+                verifyLinks={[{ label: "OG Preview", url: ext.ogDebug }]}
+              >
                 <div className="flex flex-wrap gap-2 mt-1">
                   {(["hasOgTitle", "hasOgDescription", "hasOgImage", "hasTwitterCard"] as const).map((key) => {
                     const labels: Record<string, string> = {
@@ -1022,7 +1092,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Structured Data */}
             {result?.structuredData && (
-              <CheckRow title="Структуровані дані (Schema.org)" status={result.structuredData.status} note={result.structuredData.note}>
+              <CheckRow title="Структуровані дані (Schema.org)" status={result.structuredData.status} note={result.structuredData.note}
+                verifyLinks={[{ label: "Rich Results", url: ext.richResults }, { label: "Schema.org", url: ext.schemaOrg }]}
+              >
                 {result.structuredData.types.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {result.structuredData.types.slice(0, 8).map((t) => (
@@ -1037,7 +1109,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
 
             {/* Analytics */}
             {result?.analytics && (
-              <CheckRow title="Системи аналітики та реклами" status={result.analytics.status} note={result.analytics.note}>
+              <CheckRow title="Системи аналітики та реклами" status={result.analytics.status} note={result.analytics.note}
+                verifyLinks={[{ label: "Tag Assistant", url: `https://tagassistant.google.com/#/?source=TAG_MANAGER&url=${domainEncoded}` }]}
+              >
                 <div className="flex flex-wrap gap-2 mt-1">
                   {[
                     { key: "hasGA4", label: "GA4", primary: true },

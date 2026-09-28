@@ -52,8 +52,13 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
+            // hint — підказує GIS який акаунт використовувати (порожній рядок = примусовий вибір)
+            hint?: string;
             callback: (resp: { access_token?: string; error?: string }) => void;
-          }) => { requestAccessToken: () => void };
+          }) => {
+            // prompt: "select_account" — завжди показує діалог вибору акаунту
+            requestAccessToken: (opts?: { prompt?: string; hint?: string }) => void;
+          };
         };
       };
     };
@@ -404,7 +409,8 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
   // ─── OAuth стан (не зберігається в localStorage) ──────────────────────────
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [tokenExpiry, setTokenExpiry] = useState<number | null>(null);
-  const tokenClientRef = useRef<{ requestAccessToken: () => void } | null>(null);
+  // Ref на GIS TokenClient — зберігаємо з повним підписом методу (підтримує opts для prompt)
+  const tokenClientRef = useRef<{ requestAccessToken: (opts?: { prompt?: string; hint?: string }) => void } | null>(null);
   const [gisLoaded, setGisLoaded] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -523,10 +529,11 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
   }, [accessToken, domain]);
 
   // ─── OAuth: запит токена через GIS ────────────────────────────────────────
+  // prompt:"select_account" — завжди показує діалог вибору акаунту, навіть якщо один вже залогінений
   const handleLogin = useCallback(() => {
     if (!tokenClientRef.current) return;
     setAuthLoading(true);
-    tokenClientRef.current.requestAccessToken();
+    tokenClientRef.current.requestAccessToken({ prompt: "select_account" });
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -725,10 +732,41 @@ export function GscAuditPanel({ domain }: GscAuditPanelProps) {
               Змінити Client ID
             </Button>
           </div>
-          <p className="text-sm text-gray-600 mb-4">
-            Client ID налаштовано. Натисніть кнопку нижче, щоб авторизуватись через Google.
-            Браузер покаже вікно вибору акаунту Google.
+          <p className="text-sm text-gray-600 mb-3">
+            Client ID налаштовано. Натисніть кнопку нижче — відкриється вікно вибору Google-акаунту.
           </p>
+
+          {/* Блок з поточним origin — щоб швидко перевірити що додано в Google Cloud */}
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+            <p className="text-blue-800 font-medium mb-1">
+              ⚠️ Якщо Google блокує вхід («origin_mismatch» або «не відповідає правилам OAuth 2.0»):
+            </p>
+            <p className="text-blue-700 mb-1">
+              Відкрийте{" "}
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                Google Cloud → APIs → Credentials
+              </a>{" "}
+              і додайте цей origin в &quot;Authorized JavaScript origins&quot;:
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="bg-white border border-blue-300 text-blue-900 px-2 py-1 rounded font-mono">
+                {currentOrigin}
+              </code>
+              <button
+                type="button"
+                className="text-blue-600 hover:text-blue-800 underline text-xs"
+                onClick={() => navigator.clipboard.writeText(currentOrigin)}
+              >
+                копіювати
+              </button>
+            </div>
+          </div>
+
           <div className="flex gap-3">
             <Button
               onClick={handleLogin}
