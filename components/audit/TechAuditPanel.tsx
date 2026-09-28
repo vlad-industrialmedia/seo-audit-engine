@@ -16,6 +16,11 @@ import type {
   SFPageSamplingResult,
   PageSampleCheck,
   Custom404Check,
+  Http2Check,
+  RssFeedCheck,
+  ImageOptCheck,
+  InternalLinksCheck,
+  CookieConsentCheck,
 } from "@/types";
 import { analyzeSFData } from "@/lib/tech-audit/sf-analysis";
 
@@ -432,6 +437,31 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               />
             )}
 
+            {/* HTTP/2 */}
+            {result?.http2 && (
+              <CheckRow title="HTTP/2 підтримка" status={result.http2.status} note={result.http2.note}
+                verifyLinks={[{ label: "HTTP/2 Test", url: `https://tools.keycdn.com/http2-test?url=${domainUrl}` }]}
+              >
+                {result.http2.protocol && (
+                  <span className="text-xs font-mono bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 px-2 py-0.5 rounded mt-1 inline-block">
+                    {result.http2.protocol}
+                  </span>
+                )}
+              </CheckRow>
+            )}
+
+            {/* Внутрішні посилання */}
+            {result?.internalLinks && (
+              <CheckRow title="Внутрішня перелінковка" status={result.internalLinks.status} note={result.internalLinks.note}>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  <StatPill label="Внутрішніх" value={result.internalLinks.totalInternalLinks} />
+                  <StatPill label="Зовнішніх" value={result.internalLinks.totalExternalLinks} />
+                  <StatPill label="nofollow" value={result.internalLinks.noFollowExternal} />
+                  <StatPill label="Порожніх" value={result.internalLinks.anchorTextEmpty} warn={result.internalLinks.anchorTextEmpty > 2} />
+                </div>
+              </CheckRow>
+            )}
+
             {/* Hreflang */}
             {result?.hreflang && (
               <CheckRow title="Hreflang (мовні версії)" status={result.hreflang.status} note={result.hreflang.note}
@@ -640,6 +670,22 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+              </CheckRow>
+            )}
+
+            {/* RSS / Atom Feed */}
+            {result?.rssFeed && (
+              <CheckRow title="RSS / Atom фід" status={result.rssFeed.status} note={result.rssFeed.note}>
+                {result.rssFeed.found && result.rssFeed.feedUrls.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {result.rssFeed.feedUrls.map((url) => (
+                      <a key={url} href={url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs font-mono text-blue-600 dark:text-blue-400 hover:underline bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded">
+                        {result.rssFeed!.feedType} ↗
+                      </a>
+                    ))}
                   </div>
                 )}
               </CheckRow>
@@ -1059,6 +1105,22 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               </CheckRow>
             )}
 
+            {/* Оптимізація зображень */}
+            {result?.imageOpt && (
+              <CheckRow title="Оптимізація зображень" status={result.imageOpt.status} note={result.imageOpt.note}
+                verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }]}
+              >
+                {result.imageOpt.totalImgs > 0 && (
+                  <div className="grid grid-cols-4 gap-2 mt-1">
+                    <StatPill label="Зображень" value={result.imageOpt.totalImgs} />
+                    <StatPill label="Lazy load" value={`${Math.round(result.imageOpt.lazyLoadRatio * 100)}%`} warn={result.imageOpt.lazyLoadRatio < 0.5 && result.imageOpt.totalImgs >= 3} />
+                    <StatPill label="WebP/AVIF" value={result.imageOpt.hasModernFormat ? "✓" : "✗"} warn={!result.imageOpt.hasModernFormat} />
+                    <StatPill label="Oversized" value={result.imageOpt.oversizedImgs} warn={result.imageOpt.oversizedImgs > 0} />
+                  </div>
+                )}
+              </CheckRow>
+            )}
+
             {/* Open Graph */}
             {result?.openGraph && (
               <CheckRow title="Open Graph / Social Meta" status={result.openGraph.status} note={result.openGraph.note}
@@ -1136,6 +1198,19 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
               </CheckRow>
             )}
 
+            {/* Cookie Consent / GDPR */}
+            {result?.cookieConsent && (
+              <CheckRow title="Cookie Consent / GDPR" status={result.cookieConsent.status} note={result.cookieConsent.note}
+                verifyLinks={[{ label: "CookieMetrix", url: `https://www.cookiemetrix.com/?url=${domainEncoded}` }]}
+              >
+                {result.cookieConsent.provider && (
+                  <span className="text-xs font-mono bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-2 py-0.5 rounded mt-1 inline-block">
+                    {result.cookieConsent.provider}
+                  </span>
+                )}
+              </CheckRow>
+            )}
+
           </div>
         </div>
       )}
@@ -1151,13 +1226,18 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
             <span>✦ Заголовки безпеки (HSTS, CSP…)</span>
             <span>✦ Viewport, lang attr, favicon</span>
             <span>✦ Стиснення (Gzip / Brotli)</span>
+            <span>✦ HTTP/2 / HTTP/3 підтримка</span>
             <span>✦ robots.txt + аналіз Disallow правил</span>
             <span>✦ Sitemap.xml (URL-кількість, статуси)</span>
+            <span>✦ RSS / Atom фід</span>
             <span>✦ Hreflang (мовні версії, x-default)</span>
             <span>✦ Self-canonical, PWA manifest, mixed-content</span>
+            <span>✦ Внутрішня перелінковка (homepage)</span>
+            <span>✦ Оптимізація зображень (lazy load, WebP/AVIF)</span>
             <span>✦ Open Graph / Twitter Card</span>
             <span>✦ Schema.org мікророзмітка</span>
             <span>✦ GA4 / GTM / Google Ads / MS Clarity</span>
+            <span>✦ Cookie Consent / GDPR банер</span>
             <span>✦ Кількість скриптів на сторінці</span>
             <span>✦ PageSpeed / CWV (опційно)</span>
             <span>✦ Кастомна 404-сторінка (branded vs soft-404)</span>

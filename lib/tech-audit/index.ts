@@ -16,6 +16,11 @@ import type {
   HreflangCheck,
   PageTechCheck,
   Custom404Check,
+  Http2Check,
+  RssFeedCheck,
+  ImageOptCheck,
+  InternalLinksCheck,
+  CookieConsentCheck,
 } from "@/types";
 
 const BOT_UA =
@@ -764,6 +769,229 @@ function checkCompressionFromHeaders(headers: Headers): CompressionCheck {
   return { status: "issue", encoding: null, note: "Стиснення не виявлено. Увімкніть Gzip або Brotli на сервері." };
 }
 
+// ─── HTTP/2 check (через alt-svc / via / Cloudflare заголовки) ───────────────
+function checkHttp2FromHeaders(headers: Headers): Http2Check {
+  const altSvc = headers.get("alt-svc") ?? "";
+  const via = (headers.get("via") ?? "").toLowerCase();
+  const hasH2InAltSvc = /\bh2\b/.test(altSvc);
+  const hasH3InAltSvc = /\bh3\b/.test(altSvc);
+  const viaHasHttp2 = via.includes("http/2") || via.includes("http2");
+  // Cloudflare завжди використовує H2/H3 — детектуємо за специфічними заголовками
+  const isCloudflareCdn = !!(headers.get("cf-ray") || headers.get("cf-cache-status"));
+
+  const supported = hasH2InAltSvc || hasH3InAltSvc || viaHasHttp2 || isCloudflareCdn;
+  let protocol: string | null = null;
+  if (hasH3InAltSvc) protocol = "HTTP/3";
+  else if (hasH2InAltSvc) protocol = "HTTP/2";
+  else if (viaHasHttp2) protocol = "HTTP/2 (via header)";
+  else if (isCloudflareCdn) protocol = "HTTP/2 (Cloudflare)";
+
+  return {
+    status: supported ? "ok" : "issue",
+    supported,
+    protocol,
+    note: supported
+      ? `HTTP/2 підтримується (${protocol}). ✅`
+      : "HTTP/2 не виявлено. Сучасні сервери (Nginx 1.9.5+, Apache 2.4.17+, Cloudflare) підтримують H2 — рекомендується увімкнути.",
+  };
+}
+
+// ─── Оптимізація зображень (аналіз HTML головної сторінки) ───────────────────
+function checkImageOptFromHtml(html: string): ImageOptCheck {
+  const imgTags = html.match(/<img\b[^>]*>/gi) ?? [];
+  const totalImgs = imgTags.length;
+  const lazyLoadedImgs = imgTags.filter((t) => /loading\s*=\s*["']lazy["']/i.test(t)).length;
+  const lazyLoadRatio = totalImgs > 0 ? lazyLoadedImgs / totalImgs : 1;
+  const hasWebP = /\.webp["'\s?]/i.test(html) || /image\/webp/i.test(html);
+  const hasAvif = /\.avif["'\s?]/i.test(html) || /image\/avif/i.test(html);
+  const hasModernFormat = hasWebP || hasAvif;
+  // Зображення з явно великими розмірами в атрибутах (> 1920 або > 1080)
+  const oversizedImgs = imgTags.filter((t) => {
+    const w = t.match(/width\s*=\s*["']?(\d+)/i);
+    const h = t.match(/height\s*=\s*["']?(\d+)/i);
+    if (!w || !h) return false;
+    return parseInt(w[1]) > 1920 || parseInt(h[1]) > 1080;
+  }).length;
+
+  if (totalImgs === 0) {
+    return {
+      status: "ok", totalImgs: 0, lazyLoadedImgs: 0, lazyLoadRatio: 1,
+      hasWebP, hasModernFormat, oversizedImgs: 0,
+      note: "Зображень на головній сторінці не знайдено.",
+    };
+  }
+
+  const parts: string[] = [`Зображень на головній: ${totalImgs}.`];
+  let status: ImageOptCheck["status"] = "ok";
+
+  if (lazyLoadRatio < 0.5 && totalImgs >= 3) {
+    status = "issue";
+    parts.push(`⚠️ Lazy loading: ${lazyLoadedImgs}/${totalImgs} (${Math.round(lazyLoadRatio * 100)}%). Додайте loading="lazy" для зображень нижче fold.`);
+  } else if (totalImgs >= 3) {
+    parts.push(`Lazy loading: ${Math.round(lazyLoadRatio * 100)}% ✅`);
+  }
+
+  if (!hasModernFormat) {
+    if (status === "ok") status = "issue";
+    parts.push("⚠️ WebP/AVIF не виявлено. Конвертуйте зображення в сучасні формати.");
+  } else {
+    parts.push(`Формати: ${hasWebP ? "WebP" : ""}${hasAvif ? " AVIF" : ""} ✅`);
+  }
+
+  if (oversizedImgs > 0) {
+    if (status === "ok") status = "issue";
+    parts.push(`⚠️ ${oversizedImgs} зображень > 1920px — перевірте масштабування.`);
+  }
+
+  return { status, totalImgs, lazyLoadedImgs, lazyLoadRatio, hasWebP, hasModernFormat, oversizedImgs, note: parts.join(" ") };
+}
+
+// ─── Внутрішня перелінковка (аналіз посилань на головній сторінці) ───────────
+function checkInternalLinksFromHtml(html: string, domain: string): InternalLinksCheck {
+  const bare = domain.replace(/^https?:\/\//, "").replace(/\/$/, "").replace(/^www\./, "");
+  const aOpenRegex = /<a\b([^>]*)>/gi;
+  let m: RegExpExecArray | null;
+  let totalInternalLinks = 0;
+  let totalExternalLinks = 0;
+  let noFollowExternal = 0;
+  let anchorTextEmpty = 0;
+
+  while ((m = aOpenRegex.exec(html)) !== null) {
+    const attrs = m[1];
+    const hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
+    if (!hrefMatch) continue;
+    const href = hrefMatch[1].trim();
+    // Ігноруємо якорі, mailto, tel, javascript посилання
+    if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) continue;
+
+    let isInternal = false;
+    if (!href.startsWith("http")) {
+      isInternal = true;
+    } else {
+      try {
+        const linkHost = new URL(href).hostname.replace(/^www\./, "");
+        isInternal = linkHost === bare || linkHost.endsWith(`.${bare}`);
+      } catch { isInternal = false; }
+    }
+
+    if (isInternal) {
+      totalInternalLinks++;
+    } else {
+      totalExternalLinks++;
+      const relMatch = attrs.match(/rel\s*=\s*["']([^"']+)["']/i);
+      if (relMatch && relMatch[1].toLowerCase().includes("nofollow")) noFollowExternal++;
+    }
+
+    // Порожній anchor text: одразу після тегу йде закривальний </a>
+    const afterTag = html.slice(m.index + m[0].length, m.index + m[0].length + 15);
+    if (/^\s*<\/a>/i.test(afterTag)) anchorTextEmpty++;
+  }
+
+  const parts: string[] = [`Внутрішніх: ${totalInternalLinks}, зовнішніх: ${totalExternalLinks}.`];
+  let status: InternalLinksCheck["status"] = "ok";
+
+  if (totalInternalLinks < 5) {
+    status = "issue";
+    parts.push("⚠️ Мало внутрішніх посилань — перевірте перелінковку сайту.");
+  }
+  if (anchorTextEmpty > 2) {
+    if (status === "ok") status = "issue";
+    parts.push(`⚠️ ${anchorTextEmpty} посилань без тексту (порожні anchor).`);
+  }
+  if (noFollowExternal > 0) {
+    parts.push(`nofollow: ${noFollowExternal}/${totalExternalLinks} зовнішніх.`);
+  }
+  if (status === "ok") parts.push("✅");
+
+  return { status, totalInternalLinks, totalExternalLinks, noFollowExternal, anchorTextEmpty, note: parts.join(" ") };
+}
+
+// ─── Cookie consent check (пошук GDPR-рішень у HTML головної сторінки) ───────
+function checkCookieConsentFromHtml(html: string): CookieConsentCheck {
+  // Список відомих провайдерів cookie consent та їх сигнатур
+  const providers: Array<{ name: string; pattern: RegExp }> = [
+    { name: "Cookiebot", pattern: /cookiebot\.com|Cookiebot/i },
+    { name: "OneTrust", pattern: /onetrust\.com|OneTrust|optanon/i },
+    { name: "CookiePro", pattern: /cookiepro\.com/i },
+    { name: "Cookie Notice (WP)", pattern: /cookie-notice|cn-accept-cookie/i },
+    { name: "Cookie Law Info", pattern: /cookielawinfo/i },
+    { name: "Usercentrics", pattern: /usercentrics\.eu|usercentrics/i },
+    { name: "Axeptio", pattern: /axeptio/i },
+    { name: "TrustArc", pattern: /trustarc\.com|consent\.trustarc/i },
+    { name: "Iubenda", pattern: /iubenda\.com/i },
+    { name: "Termly", pattern: /termly\.io/i },
+    { name: "Borlabs Cookie", pattern: /borlabs-cookie/i },
+    { name: "Cookie Script", pattern: /cookie-script\.com/i },
+    { name: "Klaro", pattern: /klaro\.kiprotect/i },
+    { name: "GDPR Cookie Consent", pattern: /gdpr-cookie-consent|wp-gdpr/i },
+    { name: "Complianz", pattern: /complianz/i },
+  ];
+
+  let detected = false;
+  let provider: string | null = null;
+  for (const p of providers) {
+    if (p.pattern.test(html)) { detected = true; provider = p.name; break; }
+  }
+
+  // Загальний пошук по ключових словах якщо не вдалось визначити провайдера
+  if (!detected) {
+    const generic = [/cookieconsent/i, /cookie.{0,20}accept/i, /cookie.{0,20}banner/i, /cookie.{0,20}notice/i];
+    if (generic.some((p) => p.test(html))) { detected = true; provider = "Generic (невизначено)"; }
+  }
+
+  return {
+    status: detected ? "ok" : "issue",
+    detected,
+    provider,
+    note: detected
+      ? `Cookie consent виявлено${provider ? `: ${provider}` : ""}. ✅`
+      : "Cookie consent / GDPR банер не виявлено. Для відповідності GDPR/ePrivacy необхідна згода на cookies.",
+  };
+}
+
+// ─── RSS/Atom feed check (пробуємо стандартні шляхи) ─────────────────────────
+async function checkRssFeed(domain: string): Promise<RssFeedCheck> {
+  const bare = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  // Стандартні шляхи для RSS/Atom фідів на різних CMS
+  const candidates = [
+    `https://${bare}/feed`,
+    `https://${bare}/rss.xml`,
+    `https://${bare}/atom.xml`,
+    `https://${bare}/feed.xml`,
+    `https://${bare}/rss`,
+  ];
+
+  const feedUrls: string[] = [];
+  let feedType: string | null = null;
+
+  const results = await Promise.all(
+    candidates.map(async (url) => {
+      const { text, status } = await safeGet(url, 6000);
+      if (status && status < 400 && text) {
+        const isRss = /<rss\b/i.test(text) || /<channel\b/i.test(text);
+        const isAtom = /<feed\b[^>]*xmlns/i.test(text);
+        if (isRss || isAtom) return { url, type: isAtom ? "Atom" : "RSS" };
+      }
+      return null;
+    })
+  );
+
+  for (const r of results) {
+    if (r) { feedUrls.push(r.url); if (!feedType) feedType = r.type; }
+  }
+
+  const found = feedUrls.length > 0;
+  return {
+    status: found ? "ok" : "unknown",
+    found,
+    feedUrls,
+    feedType,
+    note: found
+      ? `${feedType} фід знайдено: ${feedUrls.join(", ")}. ✅`
+      : "RSS/Atom фід не виявлено на стандартних шляхах. Якщо є блог/новини — рекомендується додати фід.",
+  };
+}
+
 // ─── Server info check (from homepage headers + favicon HEAD) ────────────────
 function detectCDN(headers: Headers): string | null {
   if (headers.get("cf-ray") || headers.get("cf-cache-status")) return "Cloudflare";
@@ -827,6 +1055,10 @@ async function checkHomepage(domain: string): Promise<{
   serverInfo: ServerInfoCheck;
   hreflang: HreflangCheck;
   pageTech: PageTechCheck;
+  http2: Http2Check;
+  imageOpt: ImageOptCheck;
+  internalLinks: InternalLinksCheck;
+  cookieConsent: CookieConsentCheck;
 }> {
   const url = `https://${domain}/`;
   try {
@@ -850,6 +1082,11 @@ async function checkHomepage(domain: string): Promise<{
       serverInfo: await checkServerInfo(domain, html, headers, ttfbMs),
       hreflang: checkHreflangFromHtml(html),
       pageTech: checkPageTechFromHtml(html, domain),
+      // Нові перевірки
+      http2: checkHttp2FromHeaders(headers),
+      imageOpt: checkImageOptFromHtml(html),
+      internalLinks: checkInternalLinksFromHtml(html, domain),
+      cookieConsent: checkCookieConsentFromHtml(html),
     };
   } catch (e) {
     const errMsg = `Не вдалось завантажити головну сторінку: ${(e as Error).message}`;
@@ -863,6 +1100,10 @@ async function checkHomepage(domain: string): Promise<{
       serverInfo: { ...unknown, server: null, cdn: null, cacheControl: null, ttfbMs: null, hasViewportMeta: false, hasLangAttr: false, hasFavicon: false },
       hreflang: { ...unknown, hasHreflang: false, count: 0, languages: [], hasXDefault: false, selfLangMatches: null },
       pageTech: { ...unknown, hasSelfCanonical: false, canonicalUrl: null, hasManifest: false, hasAppleTouchIcon: false, scriptCount: 0, hasMixedContent: false },
+      http2: { ...unknown, supported: false, protocol: null },
+      imageOpt: { ...unknown, totalImgs: 0, lazyLoadedImgs: 0, lazyLoadRatio: 0, hasWebP: false, hasModernFormat: false, oversizedImgs: 0 },
+      internalLinks: { ...unknown, totalInternalLinks: 0, totalExternalLinks: 0, noFollowExternal: 0, anchorTextEmpty: 0 },
+      cookieConsent: { ...unknown, detected: false, provider: null },
     };
   }
 }
@@ -964,12 +1205,14 @@ export async function runTechAudit(
   const bare = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
   const sfUrls = options.sfUrls ?? [];
 
-  const [mirror, https, robots, homepageChecks, custom404] = await Promise.all([
+  // Паралельно запускаємо всі незалежні перевірки для мінімізації часу аудиту
+  const [mirror, https, robots, homepageChecks, custom404, rssFeed] = await Promise.all([
     checkMainMirror(bare),
     checkHttps(bare),
     checkRobotsTxt(bare, sfUrls),
     checkHomepage(bare),
     checkCustom404(bare),
+    checkRssFeed(bare),
   ]);
 
   const sitemap = await checkSitemap(bare, robots.sitemapUrls, options.sfTotalUrls);
@@ -996,5 +1239,11 @@ export async function runTechAudit(
     hreflang: homepageChecks.hreflang,
     pageTech: homepageChecks.pageTech,
     custom404,
+    // Нові перевірки
+    http2: homepageChecks.http2,
+    imageOpt: homepageChecks.imageOpt,
+    internalLinks: homepageChecks.internalLinks,
+    cookieConsent: homepageChecks.cookieConsent,
+    rssFeed,
   };
 }
