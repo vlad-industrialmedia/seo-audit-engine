@@ -5,12 +5,12 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Plus, Play, Trash2, Download, Upload, ChevronLeft, Loader2,
-  FileText, AlertTriangle, CheckSquare, BarChart2,
+  FileText, AlertTriangle, CheckSquare, BarChart2, ShieldCheck, Cpu,
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store/project-store";
 import { importSFFiles } from "@/lib/sf-parser";
 import { runAllRules, sfRowToPagePassportAsync, aggregateFindings, buildAuditSummary } from "@/lib/rule-engine/engine";
-import type { Audit, SFImportResult } from "@/types";
+import type { Audit, SFImportResult, PageType, AIProvider } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,9 +24,60 @@ import { FindingsTable } from "@/components/audit/FindingsTable";
 import { AuditSummaryCard } from "@/components/audit/AuditSummaryCard";
 import { SFUploader } from "@/components/upload/SFUploader";
 import { ExportModal } from "@/components/audit/ExportModal";
+import TechAuditPanel from "@/components/audit/TechAuditPanel";
+import AiAnalysisPanel from "@/components/audit/AiAnalysisPanel";
 import { format } from "date-fns";
 import { uk } from "date-fns/locale";
 import { toast } from "sonner";
+
+// ─── Auto-verification: sample URLs and confirm findings via HEAD requests ────
+async function autoVerifyFindings(
+  findings: ReturnType<typeof aggregateFindings>
+): Promise<ReturnType<typeof aggregateFindings>> {
+  const RULES_WITH_META = new Set([
+    "meta.title.missing", "meta.title.duplicate", "meta.title.too_long", "meta.title.too_short",
+    "meta.description.missing", "meta.description.too_long", "meta.description.too_short",
+    "heading.h1.missing", "heading.h1.multiple",
+    "canonical.missing", "canonical.self_referencing",
+    "http.redirect_chain", "http.slow_response",
+    "indexability.noindex_important",
+  ]);
+
+  const verified = await Promise.all(
+    findings.map(async (finding) => {
+      if (!RULES_WITH_META.has(finding.ruleId)) return finding;
+      const sample = (finding.affectedUrls ?? []).slice(0, 2);
+      if (sample.length === 0) return finding;
+
+      try {
+        const results = await Promise.all(
+          sample.map((url) =>
+            fetch(`/api/verify-finding`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url, ruleId: finding.ruleId }),
+            })
+              .then((r) => r.json())
+              .catch(() => ({ confirmed: true }))
+          )
+        );
+        const confirmedCount = results.filter((r) => r.confirmed).length;
+        return {
+          ...finding,
+          verificationStatus: confirmedCount > 0 ? ("verified" as const) : ("false_positive" as const),
+          verificationNote:
+            confirmedCount > 0
+              ? `Підтверджено на ${confirmedCount} з ${sample.length} перевірених сторінок`
+              : "Не підтверджено на вибірці сторінок — можливо хибне спрацювання",
+        };
+      } catch {
+        return finding;
+      }
+    })
+  );
+  // Filter out false positives
+  return verified.filter((f) => f.verificationStatus !== "false_positive");
+}
 
 export default function ProjectPage() {
   const params = useParams();
@@ -34,7 +85,7 @@ export default function ProjectPage() {
   const router = useRouter();
   const projectId = params.id as string;
 
-  const { getProject, createAudit, updateAudit, deleteAudit, updateProject } = useProjectStore();
+  const { getProject, createAudit, updateAudit, deleteAudit, updateProject, settings } = useProjectStore();
   const project = getProject(projectId);
 
   const [activeAuditId, setActiveAuditId] = useState<string | null>(
@@ -116,7 +167,18 @@ export default function ProjectPage() {
       }
 
       const aggregated = aggregateFindings(allFindings);
-      const summary = buildAuditSummary(aggregated);
+
+      // Auto-verify: sample 2 URLs per finding and check via browser fetch
+      const verifiedFindings = await autoVerifyFindings(aggregated);
+
+      const summary = buildAuditSummary(verifiedFindings);
+
+      // Build page type stats for AI analysis
+      const detectedPageTypes: Record<string, number> = {};
+      for (const page of pages) {
+        detectedPageTypes[page.pageType] = (detectedPageTypes[page.pageType] || 0) + 1;
+      }
+      const indexableCount = pages.filter((p) => p.indexability.indexable).length;
 
       updateAudit(projectId, activeAuditId, {
         status: "completed",
@@ -124,13 +186,19 @@ export default function ProjectPage() {
         completedAt: new Date().toISOString(),
         pagesAnalyzed: pages.length,
         pagesTotal: pages.length,
-        findings: aggregated,
+        findings: verifiedFindings,
         pages,
         summary,
         sfImportFiles: sfResult.fileNames,
+        sfStats: {
+          totalUrls: pages.length,
+          detectedPageTypes: detectedPageTypes as Record<PageType, number>,
+          indexableCount,
+          nonIndexableCount: pages.length - indexableCount,
+        },
       });
 
-      toast.success(`Аудит завершено: знайдено ${aggregated.length} проблем`);
+      toast.success(`Аудит завершено: знайдено ${verifiedFindings.length} проблем`);
     } catch (err) {
       updateAudit(projectId, activeAuditId, {
         status: "failed",
@@ -225,6 +293,7 @@ export default function ProjectPage() {
               <AuditView
                 audit={activeAudit}
                 projectId={projectId}
+                domain={project.domain}
                 onDelete={() => handleDeleteAudit(activeAudit.id)}
                 onExport={() => setShowExport(true)}
                 onSFImport={handleSFImport}
@@ -232,6 +301,9 @@ export default function ProjectPage() {
                 running={running}
                 runProgress={runProgress}
                 sfResult={sfResult}
+                aiProvider={settings.defaultProvider}
+                aiApiKey={settings.defaultProvider ? (settings.aiProviders[settings.defaultProvider]?.apiKey ?? "") : ""}
+                aiModel={settings.defaultProvider ? (settings.aiProviders[settings.defaultProvider]?.model ?? "") : ""}
               />
             </div>
           )}
@@ -274,6 +346,7 @@ export default function ProjectPage() {
 function AuditView({
   audit,
   projectId,
+  domain,
   onDelete,
   onExport,
   onSFImport,
@@ -281,9 +354,13 @@ function AuditView({
   running,
   runProgress,
   sfResult,
+  aiProvider,
+  aiApiKey,
+  aiModel,
 }: {
   audit: Audit;
   projectId: string;
+  domain: string;
   onDelete: () => void;
   onExport: () => void;
   onSFImport: (result: SFImportResult) => void;
@@ -291,6 +368,9 @@ function AuditView({
   running: boolean;
   runProgress: number;
   sfResult: SFImportResult | null;
+  aiProvider?: AIProvider;
+  aiApiKey?: string;
+  aiModel?: string;
 }) {
   return (
     <div className="space-y-4">
@@ -315,7 +395,7 @@ function AuditView({
       </div>
 
       <Tabs defaultValue={audit.status === "completed" ? "findings" : "upload"}>
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="upload" className="gap-1.5">
             <Upload className="h-3.5 w-3.5" />
             Дані SF
@@ -332,6 +412,14 @@ function AuditView({
           <TabsTrigger value="summary" className="gap-1.5">
             <BarChart2 className="h-3.5 w-3.5" />
             Зведення
+          </TabsTrigger>
+          <TabsTrigger value="tech" className="gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Технічний
+          </TabsTrigger>
+          <TabsTrigger value="ai" className="gap-1.5">
+            <Cpu className="h-3.5 w-3.5" />
+            AI Аналіз
           </TabsTrigger>
         </TabsList>
 
@@ -405,6 +493,18 @@ function AuditView({
                     <span className="text-muted-foreground">Сторінок проаналізовано</span>
                     <span className="font-medium">{audit.pagesAnalyzed}</span>
                   </div>
+                  {audit.sfStats && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Індексованих</span>
+                        <span className="font-medium text-green-600">{audit.sfStats.indexableCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Не індексованих</span>
+                        <span className="font-medium text-yellow-600">{audit.sfStats.nonIndexableCount}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Всього проблем</span>
                     <span className="font-medium">{audit.summary.total}</span>
@@ -425,6 +525,32 @@ function AuditView({
               <CardContent className="p-10 text-center">
                 <BarChart2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-50" />
                 <p className="text-muted-foreground">Запустіть аудит для перегляду зведення</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Tech audit tab */}
+        <TabsContent value="tech" className="mt-4">
+          <TechAuditPanel domain={domain} />
+        </TabsContent>
+
+        {/* AI Analysis tab */}
+        <TabsContent value="ai" className="mt-4">
+          {audit.status === "completed" && audit.sfStats ? (
+            <AiAnalysisPanel
+              findings={audit.findings}
+              sfStats={audit.sfStats}
+              domain={domain}
+              provider={aiProvider ?? "anthropic"}
+              apiKey={aiApiKey ?? ""}
+              model={aiModel ?? ""}
+            />
+          ) : (
+            <Card className="border-dashed">
+              <CardContent className="p-10 text-center">
+                <Cpu className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground">Спочатку запустіть аудит</p>
               </CardContent>
             </Card>
           )}

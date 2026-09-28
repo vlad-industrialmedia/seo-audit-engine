@@ -212,6 +212,12 @@ export interface Audit {
   findings: Finding[];
   pages: PagePassport[];
   sfImportFiles: string[];
+  sfStats?: {
+    totalUrls: number;
+    detectedPageTypes: Record<PageType, number>;
+    indexableCount: number;
+    nonIndexableCount: number;
+  };
   aiProvider?: AIProvider;
   aiModel?: string;
   rulePacks: string[];
@@ -347,6 +353,84 @@ export interface SFImportResult {
   errors: string[];
   detectedPageTypes: Record<PageType, number>;
   fileNames: string[];
+}
+
+// ─── Technical Audit ──────────────────────────────────────────────────────────
+export type TechCheckStatus = "ok" | "issue" | "error" | "unknown" | "poor" | "needs_attention";
+
+export interface MirrorCheck {
+  status: TechCheckStatus;
+  canonical: "www" | "non-www" | "both" | "unknown";
+  wwwFinalUrl: string | null;
+  nonWwwFinalUrl: string | null;
+  wwwStatusCode: number | null;
+  nonWwwStatusCode: number | null;
+  note: string;
+}
+
+export interface HttpsCheck {
+  status: TechCheckStatus;
+  httpRedirectsToHttps: boolean;
+  httpsStatusCode: number | null;
+  note: string;
+}
+
+export interface RobotsTxtCheck {
+  status: TechCheckStatus;
+  exists: boolean;
+  hasSitemapDirective: boolean;
+  blocksGooglebot: boolean;
+  blocksAll: boolean;
+  disallowedPaths: string[];
+  sitemapUrls: string[];
+  note: string;
+}
+
+export interface SitemapCheck {
+  status: TechCheckStatus;
+  exists: boolean;
+  url: string | null;
+  urlCount: number | null;
+  note: string;
+}
+
+export interface PageSpeedCheck {
+  status: TechCheckStatus;
+  performanceScore: number | null;
+  lcpMs: number | null;
+  clsScore: number | null;
+  fcpMs: number | null;
+  tbtMs: number | null;
+  note: string;
+}
+
+export interface TechAuditResult {
+  domain: string;
+  checkedAt: string;
+  mirror: MirrorCheck;
+  https: HttpsCheck;
+  robotsTxt: RobotsTxtCheck;
+  sitemap: SitemapCheck;
+  pageSpeed?: PageSpeedCheck;
+  error?: string;
+}
+
+// ─── AI Page-Type Analysis ────────────────────────────────────────────────────
+export interface PageTypeAnalysis {
+  pageType: PageType;
+  pageCount: number;
+  issueCount: number;
+  summary: string;          // Ukrainian
+  recommendations: string[]; // Ukrainian bullet list
+  priority: "critical" | "high" | "medium" | "low";
+}
+
+export interface AiAuditAnalysis {
+  createdAt: string;
+  provider: AIProvider;
+  model: string;
+  pageTypeAnalyses: PageTypeAnalysis[];
+  overallSummary: string;  // Ukrainian
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

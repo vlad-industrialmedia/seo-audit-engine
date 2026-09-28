@@ -455,6 +455,137 @@ export const SEO_CORE_RULES: Rule[] = [
     developerHint: "Поле Crawl Depth у Screaming Frog ≥ 4.",
     enabled: true,
   },
+
+  // ── REDIRECT CHAIN ───────────────────────────────────────────────────────
+  {
+    id: "http.redirect_chain",
+    module: "technical",
+    rulePack: "seo_core",
+    title: "Ланцюжок редиректів",
+    description: "Сторінка доступна лише через ланцюжок із 2+ редиректів. Це уповільнює завантаження та розмиває PageRank.",
+    severityDefault: "high",
+    conditions: [
+      { field: "http.redirectChain.length", operator: "greater_than", value: 1 },
+    ],
+    exceptions: [],
+    evidence: ["url", "http.redirectChain", "http.statusCode"],
+    recommendation: "Замініть всі проміжні редиректи прямими 301-редиректами на фінальну URL. Оновіть внутрішні посилання, щоб вони вели одразу на кінцеву сторінку.",
+    developerHint: "Поле Redirect URL або Redirect Type у SF. Прямий редирект: A→B (1 хоп). Ланцюжок: A→B→C (2+ хопи).",
+    enabled: true,
+  },
+
+  // ── SLOW RESPONSE ────────────────────────────────────────────────────────
+  {
+    id: "http.slow_response",
+    module: "technical",
+    rulePack: "seo_core",
+    title: "Повільний час відповіді сервера (> 1 с)",
+    description: "Сервер відповідає довше 1000 мс. Це прямо впливає на Core Web Vitals (LCP) та індексацію.",
+    severityDefault: "medium",
+    pageTypeWeights: { homepage: "high", product: "high", category: "high" },
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "http.responseTimeMs", operator: "greater_than", value: 1000 },
+    ],
+    exceptions: [],
+    evidence: ["url", "http.responseTimeMs", "pageType"],
+    recommendation: "Оптимізуйте TTFB: використовуйте кешування сторінок (Redis/Varnish/CDN), оптимізуйте запити до БД, розгляньте статичну генерацію для шаблонних сторінок.",
+    developerHint: "Поле Response Time (ms) у Screaming Frog > 1000.",
+    enabled: true,
+  },
+
+  // ── ORPHAN PAGE (NO INLINKS) ─────────────────────────────────────────────
+  {
+    id: "links.orphan_page",
+    module: "links",
+    rulePack: "seo_core",
+    title: "Сторінка-сирота (немає внутрішніх посилань)",
+    description: "Індексована сторінка не має жодного внутрішнього посилання з інших сторінок. Пошуковики можуть її не знайти або рідко відвідувати.",
+    severityDefault: "medium",
+    pageTypeWeights: { product: "high", blog: "high", category: "high", service: "high" },
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "inlinks", operator: "equals", value: 0 },
+    ],
+    exceptions: [
+      { field: "pageType", value: "homepage" },
+      { field: "pageType", value: "search" },
+    ],
+    evidence: ["url", "inlinks", "pageType", "crawlDepth"],
+    recommendation: "Додайте внутрішні посилання на цю сторінку з тематично пов'язаних сторінок, навігації або блоку «схожі матеріали».",
+    developerHint: "Поле Inlinks = 0 у Screaming Frog для індексованої сторінки.",
+    enabled: true,
+  },
+
+  // ── THIN CONTENT ─────────────────────────────────────────────────────────
+  {
+    id: "content.thin",
+    module: "content",
+    rulePack: "seo_core",
+    title: "Малий обсяг тексту (< 200 слів)",
+    description: "Сторінка містить менше 200 слів. Google вважає такий контент \"thin content\" і може понизити його в пошуку.",
+    severityDefault: "medium",
+    pageTypeWeights: { product: "high", blog: "high", category: "medium", service: "high" },
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "content.wordCount", operator: "less_than", value: 200 },
+      { field: "content.wordCount", operator: "greater_than", value: 0 },
+    ],
+    exceptions: [
+      { field: "pageType", value: "homepage" },
+      { field: "pageType", value: "pagination" },
+      { field: "pageType", value: "filter" },
+      { field: "pageType", value: "search" },
+    ],
+    evidence: ["url", "content.wordCount", "pageType"],
+    recommendation: "Розширте контент: для продуктових сторінок — детальний опис, характеристики, відповіді на питання; для блогу — мінімум 600-800 слів; для категорій — вступний текст 150-300 слів плюс структуровані дані про товари.",
+    developerHint: "Поле Word Count у Screaming Frog < 200 для індексованої не-службової сторінки.",
+    enabled: true,
+  },
+
+  // ── MISSING META ROBOTS (non-indexable important pages) ──────────────────
+  {
+    id: "indexability.noindex_important",
+    module: "indexability",
+    rulePack: "seo_core",
+    title: "Важлива сторінка закрита від індексації",
+    description: "Сторінка типу продукт, категорія або блог має директиву noindex. Це заблокує її появу в пошуку.",
+    severityDefault: "critical",
+    conditions: [
+      { field: "indexability.noindexTag", operator: "equals", value: true },
+    ],
+    exceptions: [
+      { field: "pageType", value: "search" },
+      { field: "pageType", value: "filter" },
+      { field: "pageType", value: "pagination" },
+    ],
+    evidence: ["url", "indexability.robotsDirective", "pageType", "indexability.noindexTag"],
+    recommendation: "Перевірте навмисність noindex. Якщо сторінка повинна індексуватися — видаліть мета-тег robots noindex або HTTP-заголовок X-Robots-Tag.",
+    developerHint: "Meta robots = noindex або X-Robots-Tag: noindex для сторінки з комерційним потенціалом.",
+    enabled: true,
+  },
+
+  // ── LOW TEXT RATIO ────────────────────────────────────────────────────────
+  {
+    id: "content.low_text_ratio",
+    module: "content",
+    rulePack: "seo_core",
+    title: "Низький коефіцієнт тексту (< 10%)",
+    description: "Текстовий вміст займає менше 10% від загального HTML-коду. Можливе надмірне використання скриптів, реклами або зображень без альтернативного тексту.",
+    severityDefault: "low",
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "content.wordCount", operator: "greater_than", value: 0 },
+    ],
+    exceptions: [
+      { field: "pageType", value: "homepage" },
+      { field: "pageType", value: "search" },
+    ],
+    evidence: ["url", "content.wordCount", "pageType"],
+    recommendation: "Перегляньте структуру сторінки — можливо, великий обсяг inline-скриптів або CSS замінюють семантичний текст.",
+    developerHint: "Поле Text Ratio у Screaming Frog < 10%.",
+    enabled: false, // Disabled by default — textRatio field not always present
+  },
 ];
 
 export const RULE_PACKS = {
