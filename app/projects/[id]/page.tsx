@@ -127,7 +127,11 @@ export default function ProjectPage() {
     toast.success(`Аудит "${audit.name}" створено`);
   };
 
-  const handleSFImport = (result: SFImportResult) => {
+  const handleSFImport = (result: SFImportResult | null) => {
+    if (!result) {
+      setSfResult(null);
+      return;
+    }
     setSfResult(result);
     toast.success(`Імпортовано ${result.rows.length} URL зі Screaming Frog`);
   };
@@ -363,7 +367,7 @@ function AuditView({
   domain: string;
   onDelete: () => void;
   onExport: () => void;
-  onSFImport: (result: SFImportResult) => void;
+  onSFImport: (result: SFImportResult | null) => void;
   onRunAudit: () => void;
   running: boolean;
   runProgress: number;
@@ -425,14 +429,14 @@ function AuditView({
 
         {/* Upload tab */}
         <TabsContent value="upload" className="space-y-4 mt-4">
-          <SFUploader onImport={onSFImport} disabled={running} />
+          <SFUploader onImport={onSFImport} disabled={running} currentResult={sfResult} />
 
-          {sfResult && (
+          {sfResult && !running && (
             <div className="rounded-lg border p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-sm">Готово до запуску</p>
-                  <p className="text-xs text-muted-foreground">{sfResult.rows.length} URL завантажено</p>
+                  <p className="font-medium text-sm">Запустити аудит</p>
+                  <p className="text-xs text-muted-foreground">{sfResult.rows.length.toLocaleString("uk")} URL · {sfResult.fileNames.length} {sfResult.fileNames.length === 1 ? "файл" : "файлів"}</p>
                 </div>
                 <Button onClick={onRunAudit} disabled={running}>
                   {running ? (
@@ -532,7 +536,7 @@ function AuditView({
 
         {/* Tech audit tab */}
         <TabsContent value="tech" className="mt-4">
-          <TechAuditPanel domain={domain} />
+          <TechAuditPanel domain={domain} sfResult={sfResult} />
         </TabsContent>
 
         {/* AI Analysis tab */}

@@ -375,6 +375,13 @@ export interface HttpsCheck {
   note: string;
 }
 
+export interface RobotsTxtPathAnalysis {
+  path: string;
+  blockedSFUrlCount: number;
+  assessment: "safe" | "review" | "risky";
+  reason: string;
+}
+
 export interface RobotsTxtCheck {
   status: TechCheckStatus;
   exists: boolean;
@@ -384,6 +391,13 @@ export interface RobotsTxtCheck {
   disallowedPaths: string[];
   sitemapUrls: string[];
   note: string;
+  pathAnalysis?: RobotsTxtPathAnalysis[];
+}
+
+export interface SitemapStatusIssue {
+  url: string;
+  statusCode: number;
+  type: "redirect" | "client_error" | "server_error";
 }
 
 export interface SitemapCheck {
@@ -392,6 +406,14 @@ export interface SitemapCheck {
   url: string | null;
   urlCount: number | null;
   note: string;
+  sfComparison?: {
+    sitemapUrlCount: number;
+    sfUrlCount: number;
+    missingFromSitemapEstimate: number;
+  };
+  statusIssues?: SitemapStatusIssue[];
+  sampleChecked?: number;
+  allSitemapUrls?: string[]; // first 200 for display
 }
 
 export interface PageSpeedCheck {
