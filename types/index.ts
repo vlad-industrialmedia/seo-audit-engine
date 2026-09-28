@@ -62,6 +62,7 @@ export interface HeadingAnalysis {
   visualCandidates: VisualHeadingCandidate[];
   hidden: Array<{ tag: string; text: string; reason: string }>;
   issues: string[];
+  h1Length?: number;  // length of first H1 in characters (from SF h1_1Length)
 }
 
 // ─── Page Passport (normalized per-URL data) ────────────────────────────────
@@ -155,6 +156,9 @@ export interface PagePassport {
   };
 
   inlinks?: number;
+  crawlDepth?: number;      // how many clicks from homepage
+  nearDuplicates?: number;  // count of near-duplicate pages (from SF)
+  urlLength?: number;       // character length of URL
   screenshot?: {
     path: string;
     highlightedIssues: string[];
@@ -237,7 +241,7 @@ export interface Project {
 export interface RuleCondition {
   field: string;
   operator: "equals" | "not_equals" | "greater_than" | "less_than" | "contains" | "not_contains" | "exists" | "not_exists" | "in" | "not_in";
-  value: unknown;
+  value?: unknown;
 }
 
 export interface Rule {
@@ -302,6 +306,14 @@ export interface SFRow {
   impressions?: number;
   ctr?: number;
   position?: number;
+  // Pagination
+  relNext1?: string;
+  relPrev1?: string;
+  // Duplicate detection
+  nearDuplicates?: number;
+  // Images
+  imageCount?: number;
+  imageSizeBytes?: number;
   // Performance (Lighthouse)
   performanceScore?: number;
   lcp?: number;

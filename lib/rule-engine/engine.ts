@@ -241,6 +241,7 @@ export function sfRowToPagePassport(row: import("@/types").SFRow): PagePassport 
       visualCandidates: [],
       hidden: [],
       issues: [],
+      h1Length: row.h1_1Length || (row.h1_1 ? row.h1_1.length : undefined),
     },
     content: {
       wordCount: row.wordCount,
@@ -258,6 +259,9 @@ export function sfRowToPagePassport(row: import("@/types").SFRow): PagePassport 
     },
     hreflang: [],
     inlinks: row.inlinks || row.uniqueInlinks,
+    crawlDepth: row.crawlDepth,
+    nearDuplicates: row.nearDuplicates,
+    urlLength: row.address.length,
     findings: [],
   };
 }
@@ -314,6 +318,7 @@ export async function sfRowToPagePassportAsync(
       visualCandidates: [],
       hidden: [],
       issues: [],
+      h1Length: (row.h1_1Length as number) || (row.h1_1 ? String(row.h1_1).length : undefined),
     },
     content: { wordCount: row.wordCount },
     images: [],
@@ -321,6 +326,9 @@ export async function sfRowToPagePassportAsync(
     structuredData: { typesFound: [], hasBreadcrumb: false },
     hreflang: [],
     inlinks: (row.inlinks as number) || (row.uniqueInlinks as number),
+    crawlDepth: row.crawlDepth as number,
+    nearDuplicates: row.nearDuplicates as number,
+    urlLength: row.address.length,
     findings: [],
   };
 }

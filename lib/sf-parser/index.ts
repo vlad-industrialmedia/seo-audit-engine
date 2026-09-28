@@ -28,9 +28,10 @@ export function detectPageType(url: string): { type: PageType; confidence: numbe
 function normalizeKey(key: string): string {
   return key
     .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/[()]/g, "")
-    .replace(/-/g, "_");
+    .replace(/['"=().]/g, "")       // remove quotes, equals, parens, dots
+    .replace(/[\s-]+/g, "_")        // spaces and hyphens → underscores
+    .replace(/_+/g, "_")            // collapse multiple underscores
+    .replace(/^_|_$/g, "");         // trim leading/trailing underscores
 }
 
 function toStr(v: unknown): string | undefined {
@@ -118,6 +119,18 @@ function normalizeSFRow(raw: Record<string, unknown>): SFRow {
     impressions: toInt(norm["impressions"]),
     ctr: toFloat(norm["ctr"]),
     position: toFloat(norm["position"]),
+
+    // Pagination rel tags
+    // normalizeKey converts: rel="next" 1 → relnext_1, rel="prev" 1 → relprev_1
+    relNext1: toStr(norm["relnext_1"] ?? norm["rel_next_1"]),
+    relPrev1: toStr(norm["relprev_1"] ?? norm["rel_prev_1"]),
+
+    // Duplicate detection: "No. Near Duplicates" → no_near_duplicates
+    nearDuplicates: toInt(norm["no_near_duplicates"]),
+
+    // Images
+    imageCount: toInt(norm["image_count"]),
+    imageSizeBytes: toInt(norm["image_size_bytes"]),
 
     // Performance (Lighthouse)
     performanceScore: toFloat(norm["performance_score"]),
@@ -257,9 +270,12 @@ export async function importSFFiles(files: File[]): Promise<SFImportResult> {
       } else {
         // HTML / All pages
         const htmlRows = parsedRows.filter((r) => {
-          // Accept rows that are HTML or have no content-type (e.g., single-sheet exports)
+          // Only accept HTML pages; exclude CSS, JS, images, fonts, etc.
           const ct = String(r.contentType || "").toLowerCase();
-          return ct === "" || ct.includes("html") || ct.includes("text");
+          // No content-type = generic SF export without this column (accept)
+          if (ct === "") return true;
+          // Must be text/html — reject text/css, application/javascript, etc.
+          return ct.startsWith("text/html");
         });
 
         if (result.rows.length === 0) {

@@ -342,6 +342,119 @@ export const SEO_CORE_RULES: Rule[] = [
     recommendation: "Для мультимовних сайтів додайте hreflang теги для кожної мовної версії на всіх сторінках.",
     enabled: false, // Enabled per-project if multilingual
   },
+
+  // ── CANONICAL ────────────────────────────────────────────────────────────
+  {
+    id: "canonical.missing",
+    module: "indexability",
+    rulePack: "seo_core",
+    title: "Відсутній canonical тег",
+    description: "Індексована сторінка не має тегу canonical. Без нього пошуковик сам вирішить, яка версія URL є основною, що може призвести до дублювання.",
+    severityDefault: "medium",
+    pageTypeWeights: {
+      homepage: "high",
+      product: "high",
+      category: "high",
+    },
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "indexability.canonicalUrl", operator: "not_exists" },
+    ],
+    exceptions: [],
+    evidence: ["url", "indexability.canonicalUrl", "indexability.indexable"],
+    recommendation: "Додайте <link rel=\"canonical\" href=\"...\"> на кожну індексовану сторінку, щоб чітко вказати пошуковику канонічну URL.",
+    developerHint: "Поле `Canonical Link Element 1` у Screaming Frog порожнє для цих сторінок.",
+    enabled: true,
+  },
+
+  // ── H1 TOO LONG ──────────────────────────────────────────────────────────
+  {
+    id: "heading.h1.too_long",
+    module: "headings",
+    rulePack: "seo_core",
+    title: "H1 занадто довгий (> 70 символів)",
+    description: "Надто довгий H1 важко сприймається та може негативно впливати на семантичну вагу ключових слів у заголовку.",
+    severityDefault: "low",
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "headings.h1Length", operator: "greater_than", value: 70 },
+    ],
+    exceptions: [],
+    evidence: ["headings.h1Length", "headings.semantic.h1"],
+    recommendation: "Скоротіть H1 до 60–70 символів: залиште головне ключове слово та основну думку, приберіть зайві прикметники та повтори.",
+    developerHint: "Значення H1-1 Length у Screaming Frog перевищує 70 символів.",
+    enabled: true,
+  },
+
+  // ── URL TOO LONG ─────────────────────────────────────────────────────────
+  {
+    id: "url.too_long",
+    module: "technical",
+    rulePack: "seo_core",
+    title: "URL занадто довгий (> 115 символів)",
+    description: "Довгі URL важчі для користувача та можуть отримувати меншу вагу у пошукових алгоритмах. SF вважає проблемою URL > 115 символів.",
+    severityDefault: "low",
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "urlLength", operator: "greater_than", value: 115 },
+    ],
+    exceptions: [],
+    evidence: ["url", "urlLength"],
+    recommendation: "Вкоротіть URL: використовуйте 3–5 слів з ключовим словом, приберіть стоп-слова, ідентифікатори та зайві підпапки.",
+    developerHint: "Поле URL Length / довжина URL у символах > 115.",
+    enabled: true,
+  },
+
+  // ── NEAR DUPLICATES ──────────────────────────────────────────────────────
+  {
+    id: "content.near_duplicate",
+    module: "content",
+    rulePack: "seo_core",
+    title: "Майже дублікат контенту",
+    description: "Screaming Frog виявив, що ця сторінка дуже схожа за текстом на інші сторінки сайту. Це може негативно вплинути на ранжування через конкуренцію власних сторінок між собою.",
+    severityDefault: "medium",
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "nearDuplicates", operator: "greater_than", value: 0 },
+    ],
+    exceptions: [
+      { field: "pageType", value: "pagination" },
+      { field: "pageType", value: "filter" },
+    ],
+    evidence: ["url", "nearDuplicates", "pageType"],
+    recommendation: "Перегляньте групи дублікатів: або об'єднайте сторінки (301 редирект + canonical), або зробіть контент достатньо унікальним. Типова причина — шаблонний опис продуктів або кілька мовних версій з майже однаковим вмістом.",
+    developerHint: "Поле «No. Near Duplicates» у SF > 0. Відкрийте вкладку Duplicate Content у Screaming Frog, щоб побачити групи.",
+    enabled: true,
+  },
+
+  // ── HIGH CRAWL DEPTH ─────────────────────────────────────────────────────
+  {
+    id: "crawl.depth.high",
+    module: "technical",
+    rulePack: "seo_core",
+    title: "Висока глибина сканування (≥ 4 кліки від головної)",
+    description: "Сторінки, до яких треба зробити 4 і більше кліків з головної, погано скануються пошуковими ботами та отримують менше авторитету посилань.",
+    severityDefault: "medium",
+    pageTypeWeights: {
+      product: "high",
+      category: "high",
+      blog: "medium",
+      pagination: "low",
+      filter: "low",
+    },
+    conditions: [
+      { field: "indexability.indexable", operator: "equals", value: true },
+      { field: "crawlDepth", operator: "greater_than", value: 3 },
+    ],
+    exceptions: [
+      { field: "pageType", value: "pagination" },
+      { field: "pageType", value: "filter" },
+    ],
+    evidence: ["url", "crawlDepth", "pageType", "inlinks"],
+    recommendation: "Додайте посилання на важливі сторінки зі зручніших місць: головне меню, мегаменю, блок «популярне», хлібні крихти на рівні вище, внутрішні посилання з популярних сторінок.",
+    developerHint: "Поле Crawl Depth у Screaming Frog ≥ 4.",
+    enabled: true,
+  },
 ];
 
 export const RULE_PACKS = {
