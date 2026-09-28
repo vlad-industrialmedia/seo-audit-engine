@@ -356,7 +356,7 @@ export interface SFImportResult {
 }
 
 // ─── Technical Audit ──────────────────────────────────────────────────────────
-export type TechCheckStatus = "ok" | "issue" | "error" | "unknown" | "poor" | "needs_attention";
+export type TechCheckStatus = "ok" | "issue" | "error" | "unknown" | "poor" | "needs_attention" | "warning";
 
 export interface MirrorCheck {
   status: TechCheckStatus;
@@ -678,6 +678,10 @@ export interface PageSampleCheck {
   externalLinksCount: number;
   wordCount: number;
   issues: string[];
+  // Розширені перевірки (lazy loading, формати зображень, cookie banner)
+  lazyLoadRatio?: number;       // частка зображень з loading="lazy" (0-1)
+  hasWebP?: boolean;            // сторінка використовує WebP або AVIF
+  hasCookieBanner?: boolean;    // виявлено cookie consent / GDPR банер
 }
 
 export interface SFPageSamplingResult {
@@ -710,6 +714,16 @@ export interface SFAnalysis {
   pagination?: SFPaginationCheck;
 }
 
+// ─── Custom 404 check ────────────────────────────────────────────────────────
+export interface Custom404Check {
+  status: TechCheckStatus;
+  returns404: boolean;         // сервер повертає HTTP 404 для неіснуючих URL
+  hasBrandedPage: boolean;     // наявна кастомна branded 404-сторінка
+  redirectsToHome: boolean;    // редирект на головну замість 404
+  checkedUrl: string;
+  note: string;
+}
+
 export interface TechAuditResult {
   domain: string;
   checkedAt: string;
@@ -726,6 +740,7 @@ export interface TechAuditResult {
   serverInfo?: ServerInfoCheck;
   hreflang?: HreflangCheck;
   pageTech?: PageTechCheck;
+  custom404?: Custom404Check;  // перевірка кастомної 404-сторінки
   error?: string;
 }
 
@@ -747,11 +762,83 @@ export interface AiAuditAnalysis {
   overallSummary: string;  // Ukrainian
 }
 
+// ─── Google OAuth / GSC / GA4 налаштування ────────────────────────────────────
+export interface GoogleOAuthSettings {
+  clientId: string;    // OAuth 2.0 Client ID з Google Cloud Console
+}
+
+// ─── GSC (Google Search Console) ─────────────────────────────────────────────
+export interface GscProperty {
+  siteUrl: string;
+  permissionLevel: string;
+}
+
+export interface GscSearchQuery {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+export interface GscPageData {
+  page: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+export interface GscCoverageData {
+  excluded?: number;
+  valid?: number;
+  error?: number;
+  warning?: number;
+}
+
+export interface GscAuditResult {
+  property: string;
+  dateRange: { start: string; end: string };
+  totalClicks: number;
+  totalImpressions: number;
+  avgCtr: number;
+  avgPosition: number;
+  topQueries: GscSearchQuery[];
+  topPages: GscPageData[];
+  // Проблемні сторінки (низький CTR, висока позиція)
+  lowCtrHighPos: GscPageData[];
+  // Сторінки на позиції 4-10 (потенціал для зростання)
+  position4to10: GscSearchQuery[];
+  createdAt: string;
+}
+
+// ─── GA4 (Google Analytics 4) ────────────────────────────────────────────────
+export interface Ga4Property {
+  property: string;   // projects/123/locations/global/catalogs/default_catalog
+  displayName: string;
+  account: string;
+}
+
+export interface Ga4AuditResult {
+  property: string;
+  dateRange: { start: string; end: string };
+  sessions: number;
+  users: number;
+  newUsers: number;
+  bounceRate: number;
+  avgSessionDuration: number;
+  topPages: Array<{ page: string; sessions: number; bounceRate: number }>;
+  topSources: Array<{ source: string; medium: string; sessions: number }>;
+  deviceBreakdown: Array<{ device: string; sessions: number; pct: number }>;
+  createdAt: string;
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 export interface AppSettings {
   aiProviders: Record<AIProvider, Partial<AIProviderConfig>>;
   defaultProvider?: AIProvider;
   theme: "light" | "dark" | "system";
+  googleOAuth?: GoogleOAuthSettings;
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────

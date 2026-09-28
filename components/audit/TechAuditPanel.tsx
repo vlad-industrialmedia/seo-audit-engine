@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import type {
   TechAuditResult,
   TechCheckStatus,
@@ -15,6 +15,7 @@ import type {
   PageTechCheck,
   SFPageSamplingResult,
   PageSampleCheck,
+  Custom404Check,
 } from "@/types";
 import { analyzeSFData } from "@/lib/tech-audit/sf-analysis";
 
@@ -32,6 +33,7 @@ function StatusBadge({ status }: { status: TechCheckStatus }) {
     unknown: { label: "? Невідомо", cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
     poor: { label: "✗ Погано", cls: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
     needs_attention: { label: "⚠ Увага", cls: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400" },
+    warning: { label: "⚠ Попередження", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400" },
   };
   const s = (map as Record<string, { label: string; cls: string }>)[status] ?? map.unknown;
   return (
@@ -149,6 +151,35 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [runPsi, setRunPsi] = useState(false);
   const [expandedPage, setExpandedPage] = useState<string | null>(null);
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
+
+  // Ref на блок з результатами для html2canvas
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  /** Зробити скріншот панелі результатів і завантажити як PNG */
+  const handleScreenshot = useCallback(async () => {
+    if (!resultsRef.current) return;
+    setScreenshotLoading(true);
+    try {
+      // Динамічний імпорт html2canvas (клієнтська бібліотека)
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(resultsRef.current, {
+        scale: 2,               // Вища чіткість для ретина-екранів
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      // Конвертуємо canvas у PNG і завантажуємо
+      const link = document.createElement("a");
+      link.download = `tech-audit-${domain}-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (e) {
+      console.error("html2canvas помилка:", e);
+    } finally {
+      setScreenshotLoading(false);
+    }
+  }, [domain]);
 
   async function runAudit() {
     setLoading(true);
@@ -245,6 +276,17 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
           />
           PageSpeed Insights (повільніше)
         </label>
+        {/* Кнопка скріншоту — доступна тільки коли є результати */}
+        {(result || sfAnalysis) && !loading && (
+          <button
+            onClick={handleScreenshot}
+            disabled={screenshotLoading}
+            title="Зберегти результати аудиту як PNG"
+            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm rounded-lg disabled:opacity-50 transition-colors"
+          >
+            {screenshotLoading ? "📷…" : "📷 PNG"}
+          </button>
+        )}
         <button
           onClick={runAudit}
           disabled={loading}
@@ -270,7 +312,7 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
       )}
 
       {(result || sfAnalysis) && !loading && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div ref={resultsRef} className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           {result && (
             <div className="bg-gray-50 dark:bg-gray-800/50 px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
               Перевірено: {result.domain} · {new Date(result.checkedAt).toLocaleString("uk-UA")}
@@ -410,6 +452,27 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                       </span>
                     );
                   })}
+                </div>
+              </CheckRow>
+            )}
+
+            {/* Custom 404 */}
+            {result?.custom404 && (
+              <CheckRow title="Кастомна 404-сторінка" status={result.custom404.status} note={result.custom404.note}>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {[
+                    { ok: result.custom404.returns404, label: "HTTP 404 для неіснуючих URL" },
+                    { ok: result.custom404.hasBrandedPage, label: "Branded 404-сторінка" },
+                    { ok: !result.custom404.redirectsToHome, label: "Не редиректить на головну" },
+                  ].map(({ ok, label }) => (
+                    <span key={label} className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                      ok
+                        ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                        : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                    }`}>
+                      {ok ? "✓" : "✗"} {label}
+                    </span>
+                  ))}
                 </div>
               </CheckRow>
             )}
@@ -773,6 +836,14 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                                     📝 {page.wordCount}сл.
                                   </span>
                                 )}
+                                {/* Lazy loading — показуємо тільки якщо є проблема */}
+                                {page.imagesTotal >= 3 && (page.lazyLoadRatio ?? 1) < 0.5 && (
+                                  <span className="text-orange-500">lazy:{Math.round((page.lazyLoadRatio ?? 0) * 100)}%</span>
+                                )}
+                                {/* WebP/AVIF — показуємо якщо відсутній */}
+                                {page.imagesTotal > 0 && page.hasWebP === false && (
+                                  <span className="text-orange-500">no WebP</span>
+                                )}
                                 {page.schemaTypes.length > 0 && (
                                   <span className="text-blue-400">Schema✓</span>
                                 )}
@@ -799,6 +870,40 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                               <StatPill label="Внутр. посил." value={page.internalLinksCount} warn={page.internalLinksCount < 3} />
                               <StatPill label="Зовн. посил." value={page.externalLinksCount} />
                               <StatPill label="Schema типів" value={page.schemaTypes.length} />
+                            </div>
+                            {/* Розширені перевірки: lazy, WebP, cookie */}
+                            <div className="flex flex-wrap gap-1 mb-2">
+                              {page.lazyLoadRatio !== undefined && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                                  page.lazyLoadRatio >= 0.5
+                                    ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                                    : page.imagesTotal >= 3
+                                      ? "bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800"
+                                      : "bg-gray-50 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700"
+                                }`}>
+                                  lazy: {Math.round((page.lazyLoadRatio ?? 0) * 100)}%
+                                </span>
+                              )}
+                              {page.hasWebP !== undefined && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                                  page.hasWebP
+                                    ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                                    : page.imagesTotal > 0
+                                      ? "bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800"
+                                      : "bg-gray-50 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700"
+                                }`}>
+                                  {page.hasWebP ? "✓ WebP/AVIF" : "✗ WebP/AVIF"}
+                                </span>
+                              )}
+                              {page.hasCookieBanner !== undefined && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded font-mono border ${
+                                  page.hasCookieBanner
+                                    ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                                    : "bg-gray-50 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-700"
+                                }`}>
+                                  {page.hasCookieBanner ? "✓ Cookie consent" : "— Cookie consent"}
+                                </span>
+                              )}
                             </div>
                             {page.schemaTypes.length > 0 && (
                               <div className="flex flex-wrap gap-1 mb-2">
@@ -981,7 +1086,7 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
             <span>✦ GA4 / GTM / Google Ads / MS Clarity</span>
             <span>✦ Кількість скриптів на сторінці</span>
             <span>✦ PageSpeed / CWV (опційно)</span>
-            <span></span>
+            <span>✦ Кастомна 404-сторінка (branded vs soft-404)</span>
             {sfResult && (
               <>
                 <span>✦ [SF] HTTP статус-коди (200/3xx/4xx/5xx)</span>
@@ -1005,6 +1110,9 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                 <span>✦ Alt в контентній зоні (main/article)</span>
                 <span>✦ Schema.org на реальних сторінках</span>
                 <span>✦ Кількість слів і внутрішніх посилань</span>
+                <span>✦ Lazy loading ratio (loading="lazy")</span>
+                <span>✦ WebP / AVIF формати зображень</span>
+                <span>✦ Cookie consent / GDPR банер</span>
               </>
             )}
           </div>

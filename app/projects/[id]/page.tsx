@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Plus, Play, Trash2, Download, Upload, ChevronLeft, Loader2,
   FileText, AlertTriangle, CheckSquare, BarChart2, ShieldCheck, Cpu,
-  Save, FolderOpen, RotateCcw,
+  Save, FolderOpen, RotateCcw, LineChart,
 } from "lucide-react";
 import { useProjectStore } from "@/lib/store/project-store";
 import { importSFFiles } from "@/lib/sf-parser";
@@ -27,6 +27,7 @@ import { SFUploader } from "@/components/upload/SFUploader";
 import { ExportModal } from "@/components/audit/ExportModal";
 import TechAuditPanel from "@/components/audit/TechAuditPanel";
 import AiAnalysisPanel from "@/components/audit/AiAnalysisPanel";
+import { GscAuditPanel } from "@/components/audit/GscAuditPanel";
 import { format } from "date-fns";
 import { uk } from "date-fns/locale";
 import { toast } from "sonner";
@@ -534,6 +535,11 @@ function AuditView({
             <Cpu className="h-3.5 w-3.5" />
             AI Аналіз
           </TabsTrigger>
+          {/* Вкладка Google Search Console + GA4 */}
+          <TabsTrigger value="gsc" className="gap-1.5">
+            <LineChart className="h-3.5 w-3.5" />
+            GSC &amp; GA4
+          </TabsTrigger>
         </TabsList>
 
         {/* Upload tab */}
@@ -646,6 +652,11 @@ function AuditView({
         {/* Технічний аудит — forceMount зберігає результати при перемиканні вкладок */}
         <TabsContent value="tech" className="mt-4" forceMount>
           <TechAuditPanel domain={domain} sfResult={sfResult} />
+        </TabsContent>
+
+        {/* GSC + GA4 — підключення Google та аналіз пошукового трафіку */}
+        <TabsContent value="gsc" className="mt-4" forceMount>
+          <GscAuditPanel domain={domain} />
         </TabsContent>
 
         {/* AI Аналіз — forceMount зберігає результат AI при перемиканні вкладок */}
