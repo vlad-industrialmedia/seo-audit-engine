@@ -391,9 +391,11 @@ export async function checkSitemap(
     sfComparison = { sitemapUrlCount: urlCount, sfUrlCount: sfTotalUrls, missingFromSitemapEstimate };
   }
 
-  // Status code check on sample (first 40 unique page URLs)
-  const sampleUrls = Array.from(new Set(allPageUrls)).slice(0, 40);
-  const statusMap = await batchCheckStatus(sampleUrls);
+  // Перевіряємо статус-коди ВСІХ унікальних URL з sitemap (до 500 для розумного обмеження часу)
+  const MAX_SITEMAP_CHECK = 500;
+  const uniqueUrls = Array.from(new Set(allPageUrls));
+  const urlsToCheck = uniqueUrls.slice(0, MAX_SITEMAP_CHECK);
+  const statusMap = await batchCheckStatus(urlsToCheck);
 
   const statusIssues: SitemapStatusIssue[] = [];
   for (const [url, code] of Array.from(statusMap.entries())) {
@@ -407,10 +409,17 @@ export async function checkSitemap(
     }
   }
 
-  // Build note
+  // Кількість успішно перевірених (отримали відповідь)
+  const checkedCount = Array.from(statusMap.values()).filter((v) => v !== null).length;
+  const okCount = Array.from(statusMap.values()).filter((v) => v !== null && v >= 200 && v < 300).length;
+
+  // Будуємо нотатку
   const parts: string[] = [];
   let checkStatus: SitemapCheck["status"] = "ok";
 
+  const limitNote = uniqueUrls.length > MAX_SITEMAP_CHECK
+    ? ` (перевірено перші ${MAX_SITEMAP_CHECK} з ${uniqueUrls.length.toLocaleString("uk")})`
+    : "";
   parts.push(`Sitemap знайдено: ${foundUrl} (${urlCount.toLocaleString("uk")} URL).`);
 
   if (sfComparison && sfComparison.missingFromSitemapEstimate > 0) {
@@ -430,14 +439,14 @@ export async function checkSitemap(
     const errors = statusIssues.filter((i) => i.type !== "redirect").length;
     if (errors > 0) {
       checkStatus = "issue";
-      parts.push(`⚠️ ${errors} URL у sitemap повертають помилки (4xx/5xx).`);
+      parts.push(`⚠️ ${errors} URL у sitemap повертають помилки (4xx/5xx)${limitNote}.`);
     }
     if (redirects > 0) {
       if (checkStatus === "ok") checkStatus = "issue";
-      parts.push(`⚠️ ${redirects} URL у sitemap є редиректами (301/302) — sitemap має посилатись на фінальні URL.`);
+      parts.push(`⚠️ ${redirects} URL у sitemap є редиректами (301/302) — sitemap має посилатись на фінальні URL${limitNote}.`);
     }
-  } else if (sampleUrls.length > 0) {
-    parts.push(`Перевірено ${sampleUrls.length} URL — всі відповідають 200. ✅`);
+  } else if (checkedCount > 0) {
+    parts.push(`Перевірено ${checkedCount.toLocaleString("uk")} URL${limitNote}: ${okCount} з 2xx. ✅`);
   }
 
   return {
@@ -447,67 +456,99 @@ export async function checkSitemap(
     urlCount,
     note: parts.join(" "),
     sfComparison,
-    statusIssues: statusIssues.slice(0, 20),
-    sampleChecked: sampleUrls.length,
-    allSitemapUrls: allPageUrls.slice(0, 200),
+    statusIssues: statusIssues.slice(0, 50), // зберігаємо до 50 проблемних URL
+    sampleChecked: urlsToCheck.length,
+    allSitemapUrls: allPageUrls.slice(0, 200), // перші 200 для відображення у UI
   };
 }
 
-// ─── PageSpeed check (Google PSI) ────────────────────────────────────────────
-export async function checkPageSpeed(
-  url: string,
-  apiKey?: string
-): Promise<PageSpeedCheck> {
+// ─── PageSpeed check (Google PSI) — паралельно mobile + desktop ──────────────
+async function fetchPSI(url: string, strategy: "mobile" | "desktop", apiKey?: string): Promise<{
+  score: number | null;
+  lcp: number | null;
+  cls: number | null;
+  fcp: number | null;
+  tbt: number | null;
+  error?: string;
+}> {
   const apiUrl = new URL("https://www.googleapis.com/pagespeedonline/v5/runPagespeed");
   apiUrl.searchParams.set("url", url);
-  apiUrl.searchParams.set("strategy", "mobile");
+  apiUrl.searchParams.set("strategy", strategy);
   apiUrl.searchParams.set("category", "performance");
   if (apiKey) apiUrl.searchParams.set("key", apiKey);
 
   try {
-    const res = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(45000) });
-
+    const res = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(50000) });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      return {
-        status: "error", performanceScore: null, lcpMs: null, clsScore: null, fcpMs: null, tbtMs: null,
-        note: `PSI API помилка: HTTP ${res.status}. ${errText.slice(0, 200)}`,
-      };
+      return { score: null, lcp: null, cls: null, fcp: null, tbt: null, error: `HTTP ${res.status}: ${errText.slice(0, 100)}` };
     }
-
     const data = await res.json();
     const cats = data?.lighthouseResult?.categories;
     const audits = data?.lighthouseResult?.audits;
-
-    const score = cats?.performance?.score != null ? Math.round(cats.performance.score * 100) : null;
-    const lcp = audits?.["largest-contentful-paint"]?.numericValue ?? null;
-    const cls = audits?.["cumulative-layout-shift"]?.numericValue ?? null;
-    const fcp = audits?.["first-contentful-paint"]?.numericValue ?? null;
-    const tbt = audits?.["total-blocking-time"]?.numericValue ?? null;
-
-    let status: PageSpeedCheck["status"] = "ok";
-    if (score !== null) {
-      if (score < 50) status = "poor";
-      else if (score < 90) status = "needs_attention";
-    }
-
     return {
-      status,
-      performanceScore: score,
-      lcpMs: lcp ? Math.round(lcp) : null,
-      clsScore: cls != null ? parseFloat((cls as number).toFixed(3)) : null,
-      fcpMs: fcp ? Math.round(fcp) : null,
-      tbtMs: tbt ? Math.round(tbt) : null,
-      note: score !== null
-        ? `PageSpeed Score (mobile): ${score}/100. LCP: ${lcp ? ((lcp as number) / 1000).toFixed(2) + "s" : "н/д"}, CLS: ${cls != null ? (cls as number).toFixed(3) : "н/д"}, FCP: ${fcp ? ((fcp as number) / 1000).toFixed(2) + "s" : "н/д"}.`
-        : "Не вдалося отримати дані PageSpeed.",
+      score: cats?.performance?.score != null ? Math.round(cats.performance.score * 100) : null,
+      lcp: audits?.["largest-contentful-paint"]?.numericValue ?? null,
+      cls: audits?.["cumulative-layout-shift"]?.numericValue ?? null,
+      fcp: audits?.["first-contentful-paint"]?.numericValue ?? null,
+      tbt: audits?.["total-blocking-time"]?.numericValue ?? null,
     };
   } catch (e) {
+    return { score: null, lcp: null, cls: null, fcp: null, tbt: null, error: (e as Error).message };
+  }
+}
+
+export async function checkPageSpeed(
+  url: string,
+  apiKey?: string
+): Promise<PageSpeedCheck> {
+  // Запускаємо обидві стратегії паралельно для економії часу
+  const [mobile, desktop] = await Promise.all([
+    fetchPSI(url, "mobile", apiKey),
+    fetchPSI(url, "desktop", apiKey),
+  ]);
+
+  // Якщо обидва запити провалились — повертаємо помилку
+  if (mobile.error && desktop.error) {
     return {
-      status: "error", performanceScore: null, lcpMs: null, clsScore: null, fcpMs: null, tbtMs: null,
-      note: `Помилка отримання PSI: ${(e as Error).message}`,
+      status: "error",
+      performanceScore: null,
+      desktopScore: null,
+      lcpMs: null,
+      clsScore: null,
+      fcpMs: null,
+      tbtMs: null,
+      note: `PSI API помилка: ${mobile.error}`,
     };
   }
+
+  // Визначаємо загальний статус за мобільним скором (більш критичний)
+  const mScore = mobile.score;
+  const dScore = desktop.score;
+  let status: PageSpeedCheck["status"] = "ok";
+  if (mScore !== null) {
+    if (mScore < 50) status = "poor";
+    else if (mScore < 90) status = "needs_attention";
+  }
+
+  // Формуємо текст нотатки з обома скорами
+  const mText = mScore !== null ? `📱 Mobile: ${mScore}/100` : "📱 Mobile: н/д";
+  const dText = dScore !== null ? `🖥️ Desktop: ${dScore}/100` : "🖥️ Desktop: н/д";
+  const lcpText = mobile.lcp ? `LCP: ${((mobile.lcp as number) / 1000).toFixed(2)}s` : null;
+  const clsText = mobile.cls != null ? `CLS: ${(mobile.cls as number).toFixed(3)}` : null;
+  const fcpText = mobile.fcp ? `FCP: ${((mobile.fcp as number) / 1000).toFixed(2)}s` : null;
+  const metricsParts = [lcpText, clsText, fcpText].filter(Boolean).join(", ");
+
+  return {
+    status,
+    performanceScore: mScore,
+    desktopScore: dScore,
+    lcpMs: mobile.lcp ? Math.round(mobile.lcp as number) : null,
+    clsScore: mobile.cls != null ? parseFloat((mobile.cls as number).toFixed(3)) : null,
+    fcpMs: mobile.fcp ? Math.round(mobile.fcp as number) : null,
+    tbtMs: mobile.tbt ? Math.round(mobile.tbt as number) : null,
+    note: `PageSpeed: ${mText}, ${dText}.${metricsParts ? ` Метрики (mobile): ${metricsParts}.` : ""}`,
+  };
 }
 
 // ─── Structured data check ───────────────────────────────────────────────────

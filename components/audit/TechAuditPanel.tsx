@@ -1072,22 +1072,41 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
             {/* ═══ SECTION: PERFORMANCE & SOCIAL ═══ */}
             {result && <SectionDivider label="Продуктивність і соціальні мережі" />}
 
-            {/* PageSpeed */}
+            {/* PageSpeed — mobile + desktop */}
             {result?.pageSpeed && (
-              <CheckRow title="PageSpeed (мобільний)" status={result.pageSpeed.status} note={result.pageSpeed.note}
+              <CheckRow title="PageSpeed Insights" status={result.pageSpeed.status} note={result.pageSpeed.note}
                 verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }, { label: "Mobile Test", url: ext.mobileFriend }]}
               >
-                {result.pageSpeed.performanceScore !== null && (
-                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <span className={`text-2xl font-bold ${
+                {/* Блок із двома скорами поруч */}
+                <div className="flex flex-wrap gap-6 mt-1">
+                  {/* Mobile score */}
+                  {result.pageSpeed.performanceScore !== null && (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-xs text-gray-400">📱 Mobile</span>
+                      <span className={`text-3xl font-bold leading-none ${
                         result.pageSpeed.performanceScore >= 90 ? "text-green-600" :
                         result.pageSpeed.performanceScore >= 50 ? "text-yellow-600" : "text-red-600"
                       }`}>
                         {result.pageSpeed.performanceScore}
                       </span>
-                      <span className="text-gray-400">/100</span>
+                      <span className="text-xs text-gray-400">/100</span>
                     </div>
+                  )}
+                  {/* Desktop score */}
+                  {result.pageSpeed.desktopScore !== null && (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-xs text-gray-400">🖥️ Desktop</span>
+                      <span className={`text-3xl font-bold leading-none ${
+                        result.pageSpeed.desktopScore >= 90 ? "text-green-600" :
+                        result.pageSpeed.desktopScore >= 50 ? "text-yellow-600" : "text-red-600"
+                      }`}>
+                        {result.pageSpeed.desktopScore}
+                      </span>
+                      <span className="text-xs text-gray-400">/100</span>
+                    </div>
+                  )}
+                  {/* Core Web Vitals (mobile) */}
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400 self-end">
                     {result.pageSpeed.lcpMs && (
                       <span>LCP: <b className="text-gray-700 dark:text-gray-200">{(result.pageSpeed.lcpMs / 1000).toFixed(2)}s</b></span>
                     )}
@@ -1101,7 +1120,7 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult }: Props) {
                       <span>TBT: <b className="text-gray-700 dark:text-gray-200">{result.pageSpeed.tbtMs}ms</b></span>
                     )}
                   </div>
-                )}
+                </div>
               </CheckRow>
             )}
 

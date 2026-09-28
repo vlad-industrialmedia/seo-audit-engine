@@ -16,7 +16,7 @@ export type PageType =
   | "other";
 
 // ─── AI Provider ────────────────────────────────────────────────────────────
-export type AIProvider = "anthropic" | "openrouter" | "gemini" | "grok";
+export type AIProvider = "anthropic" | "openrouter" | "gemini" | "grok" | "groq" | "cerebras";
 
 export interface AIProviderConfig {
   provider: AIProvider;
@@ -418,7 +418,8 @@ export interface SitemapCheck {
 
 export interface PageSpeedCheck {
   status: TechCheckStatus;
-  performanceScore: number | null;
+  performanceScore: number | null;  // мобільний скор
+  desktopScore: number | null;      // десктопний скор
   lcpMs: number | null;
   clsScore: number | null;
   fcpMs: number | null;

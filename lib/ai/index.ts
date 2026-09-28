@@ -44,6 +44,26 @@ export const AI_PROVIDER_CONFIGS: Record<AIProvider, Omit<AIProviderConfig, "api
       { id: "grok-vision-beta", name: "Grok Vision Beta", contextWindow: 8192, costPer1KInput: 0.005, costPer1KOutput: 0.015 },
     ],
   },
+  groq: {
+    provider: "groq",
+    label: "Groq (LPU)",
+    description: "Groq — надшвидкий inference на LPU-чипах, безкоштовний tier з щедрими лімітами",
+    models: [
+      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", contextWindow: 128000, costPer1KInput: 0.00059, costPer1KOutput: 0.00079, recommended: true },
+      { id: "llama3-8b-8192", name: "Llama 3 8B", contextWindow: 8192, costPer1KInput: 0.00005, costPer1KOutput: 0.00008 },
+      { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", contextWindow: 32768, costPer1KInput: 0.00024, costPer1KOutput: 0.00024 },
+      { id: "gemma2-9b-it", name: "Gemma 2 9B", contextWindow: 8192, costPer1KInput: 0.0002, costPer1KOutput: 0.0002 },
+    ],
+  },
+  cerebras: {
+    provider: "cerebras",
+    label: "Cerebras",
+    description: "Cerebras — рекордно швидкий inference на CS-3 чипах, безкоштовний tier",
+    models: [
+      { id: "llama3.1-8b", name: "Llama 3.1 8B", contextWindow: 8192, costPer1KInput: 0, costPer1KOutput: 0, recommended: true },
+      { id: "llama3.1-70b", name: "Llama 3.1 70B", contextWindow: 8192, costPer1KInput: 0, costPer1KOutput: 0 },
+    ],
+  },
 };
 
 // ─── Validate API key ─────────────────────────────────────────────────────────
@@ -62,6 +82,10 @@ export async function validateApiKey(
         return await validateGemini(apiKey, model || "gemini-1.5-flash");
       case "grok":
         return await validateGrok(apiKey);
+      case "groq":
+        return await validateGeneric(apiKey, "groq", model || "llama-3.3-70b-versatile");
+      case "cerebras":
+        return await validateGeneric(apiKey, "cerebras", model || "llama3.1-8b");
       default:
         return { valid: false, error: "Unknown provider" };
     }
@@ -110,6 +134,17 @@ async function validateGrok(apiKey: string): Promise<{ valid: boolean; error?: s
   return data;
 }
 
+// Загальна валідація для провайдерів Groq та Cerebras через уніфікований роут
+async function validateGeneric(apiKey: string, provider: AIProvider, model: string): Promise<{ valid: boolean; error?: string }> {
+  const res = await fetch("/api/ai/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, apiKey, model }),
+  });
+  const data = await res.json();
+  return data;
+}
+
 // ─── AI Analysis ──────────────────────────────────────────────────────────────
 export interface AIAnalysisInput {
   page: Partial<PagePassport>;
@@ -151,6 +186,85 @@ export async function analyzeWithAI(
   } catch {
     return null;
   }
+}
+
+// ─── Карусель провайдерів — автоматичний fallback при перевищенні лімітів ─────
+export interface CarouselProvider {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+}
+
+// Перевірка чи помилка пов'язана з лімітом запитів (429 або rate limit у тексті)
+function isRateLimitError(statusCode: number, errorMessage?: string): boolean {
+  if (statusCode === 429) return true;
+  if (!errorMessage) return false;
+  const lower = errorMessage.toLowerCase();
+  return (
+    lower.includes("rate limit") ||
+    lower.includes("quota") ||
+    lower.includes("exceeded") ||
+    lower.includes("too many requests") ||
+    lower.includes("tokens per") ||
+    lower.includes("requests per")
+  );
+}
+
+// Аналіз з автоматичним перемиканням на наступний провайдер при вичерпанні лімітів
+export async function analyzeWithFallback(
+  input: AIAnalysisInput,
+  providers: CarouselProvider[]
+): Promise<{ result: AIAnalysisResult | null; usedProvider: AIProvider | null; fallbackUsed: boolean }> {
+  if (providers.length === 0) {
+    return { result: null, usedProvider: null, fallbackUsed: false };
+  }
+
+  const prompt = buildAnalysisPrompt(input);
+  let fallbackUsed = false;
+
+  for (let i = 0; i < providers.length; i++) {
+    const { provider, apiKey, model } = providers[i];
+
+    try {
+      const res = await fetch("/api/ai/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, provider, apiKey, model }),
+      });
+
+      // Якщо вичерпано ліміт — переходимо до наступного провайдера
+      if (res.status === 429) {
+        console.warn(`[AI Carousel] Провайдер ${provider} — ліміт вичерпано, переключаємось...`);
+        fallbackUsed = i > 0 || true;
+        continue;
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg: string = errData?.error || "";
+        // Якщо rate limit у тексті помилки — також переключаємось
+        if (isRateLimitError(res.status, errMsg)) {
+          console.warn(`[AI Carousel] Провайдер ${provider} — ліміт у відповіді, переключаємось...`);
+          fallbackUsed = true;
+          continue;
+        }
+        // Інші помилки — вважаємо фатальними для цього провайдера
+        console.error(`[AI Carousel] Провайдер ${provider} помилка: ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      return { result: data.result, usedProvider: provider, fallbackUsed: i > 0 };
+    } catch (err) {
+      // Мережева помилка — переходимо до наступного
+      console.error(`[AI Carousel] Провайдер ${provider} мережева помилка:`, err);
+      fallbackUsed = true;
+      continue;
+    }
+  }
+
+  // Всі провайдери вичерпані
+  return { result: null, usedProvider: null, fallbackUsed };
 }
 
 function buildAnalysisPrompt(input: AIAnalysisInput): string {

@@ -15,6 +15,8 @@ const AI_PROVIDERS: { id: AIProvider; order: number }[] = [
   { id: "openrouter", order: 2 },
   { id: "anthropic", order: 3 },
   { id: "grok", order: 4 },
+  { id: "groq", order: 5 },      // безкоштовний tier, LPU-inference
+  { id: "cerebras", order: 6 },  // безкоштовний tier, надшвидкий CS-3
 ];
 
 export default function SettingsPage() {
@@ -82,6 +84,8 @@ export default function SettingsPage() {
                 openrouter: "OpenRouter",
                 anthropic: "Anthropic",
                 grok: "Grok",
+                groq: "Groq",
+                cerebras: "Cerebras",
               };
 
               const icons: Record<AIProvider, string> = {
@@ -89,6 +93,8 @@ export default function SettingsPage() {
                 openrouter: "🔀",
                 anthropic: "🤖",
                 grok: "⚡",
+                groq: "🚀",
+                cerebras: "🧠",
               };
 
               return (

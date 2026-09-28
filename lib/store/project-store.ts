@@ -51,6 +51,8 @@ const defaultSettings: AppSettings = {
     openrouter: { provider: "openrouter", apiKey: "", label: "OpenRouter", description: "", models: [] },
     gemini: { provider: "gemini", apiKey: "", label: "Google Gemini", description: "", models: [] },
     grok: { provider: "grok", apiKey: "", label: "xAI Grok", description: "", models: [] },
+    groq: { provider: "groq", apiKey: "", label: "Groq (LPU)", description: "", models: [] },
+    cerebras: { provider: "cerebras", apiKey: "", label: "Cerebras", description: "", models: [] },
   },
   theme: "system",
 };

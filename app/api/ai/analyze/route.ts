@@ -98,6 +98,58 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "groq": {
+        // Groq — OpenAI-сумісний API, надзвичайно швидкий inference
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: "You are a Senior SEO specialist. Always respond in valid JSON format as requested." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 2048,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(`Groq error: ${res.status} — ${errData?.error?.message || ""}`);
+        }
+        const data = await res.json();
+        responseText = data.choices?.[0]?.message?.content || "";
+        break;
+      }
+
+      case "cerebras": {
+        // Cerebras — OpenAI-сумісний API з надшвидким апаратним inference
+        const res = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "llama3.1-8b",
+            messages: [
+              { role: "system", content: "You are a Senior SEO specialist. Always respond in valid JSON format as requested." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 2048,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(`Cerebras error: ${res.status} — ${errData?.error?.message || ""}`);
+        }
+        const data = await res.json();
+        responseText = data.choices?.[0]?.message?.content || "";
+        break;
+      }
+
       default:
         return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
     }

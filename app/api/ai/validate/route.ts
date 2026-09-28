@@ -50,28 +50,34 @@ export async function POST(req: NextRequest) {
       }
 
       case "gemini": {
-        const modelId = model || "gemini-1.5-flash";
+        // Використовуємо endpoint списку моделей — він чітко розрізняє невалідний ключ від інших помилок
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: "ping" }] }],
-              generationConfig: { maxOutputTokens: 5 },
-            }),
-          }
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=1`,
+          { method: "GET" }
         );
 
-        if (res.status === 400) {
-          const err = await res.json();
-          if (err.error?.message?.includes("API_KEY_INVALID")) {
-            return NextResponse.json({ valid: false, error: "Invalid API key" });
-          }
-          return NextResponse.json({ valid: true }); // Other 400s mean key is valid
-        }
         if (res.ok) return NextResponse.json({ valid: true });
-        return NextResponse.json({ valid: false, error: "Cannot connect to Gemini" });
+
+        const errData = await res.json().catch(() => ({}));
+        const errMsg: string = errData?.error?.message || "";
+        const errStatus: string = errData?.error?.status || "";
+
+        // API_KEY_INVALID або PERMISSION_DENIED означає невалідний ключ
+        if (
+          res.status === 400 ||
+          errStatus === "INVALID_ARGUMENT" ||
+          errMsg.includes("API_KEY_INVALID") ||
+          errMsg.includes("API key not valid") ||
+          (res.status === 403 && errMsg.toLowerCase().includes("api key"))
+        ) {
+          return NextResponse.json({ valid: false, error: "Invalid API key" });
+        }
+
+        // 429 — ключ валідний, але вичерпано ліміт
+        if (res.status === 429) return NextResponse.json({ valid: true });
+
+        // Будь-яка інша відповідь (404 моделі, 503 тощо) — ключ скоріш за все валідний
+        return NextResponse.json({ valid: true });
       }
 
       case "grok": {
@@ -91,6 +97,46 @@ export async function POST(req: NextRequest) {
         if (res.status === 401) return NextResponse.json({ valid: false, error: "Invalid API key" });
         if (res.ok || res.status === 400) return NextResponse.json({ valid: true });
         return NextResponse.json({ valid: false, error: "Cannot connect to xAI Grok" });
+      }
+
+      case "groq": {
+        // Groq сумісний з OpenAI API — 401 = невалідний ключ
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 5,
+          }),
+        });
+
+        if (res.status === 401) return NextResponse.json({ valid: false, error: "Invalid API key" });
+        if (res.ok || res.status === 400 || res.status === 429) return NextResponse.json({ valid: true });
+        return NextResponse.json({ valid: false, error: "Cannot connect to Groq" });
+      }
+
+      case "cerebras": {
+        // Cerebras сумісний з OpenAI API — 401 = невалідний ключ
+        const res = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: model || "llama3.1-8b",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 5,
+          }),
+        });
+
+        if (res.status === 401) return NextResponse.json({ valid: false, error: "Invalid API key" });
+        if (res.ok || res.status === 400 || res.status === 429) return NextResponse.json({ valid: true });
+        return NextResponse.json({ valid: false, error: "Cannot connect to Cerebras" });
       }
 
       default:

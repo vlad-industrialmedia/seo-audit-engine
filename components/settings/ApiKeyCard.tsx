@@ -83,6 +83,8 @@ export function ApiKeyCard({ provider }: ApiKeyCardProps) {
     openrouter: "🔀",
     gemini: "✨",
     grok: "⚡",
+    groq: "🚀",
+    cerebras: "🧠",
   };
 
   return (
