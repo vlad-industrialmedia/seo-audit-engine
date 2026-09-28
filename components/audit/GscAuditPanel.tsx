@@ -30,6 +30,12 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  Map,
+  FileText,
+  Bug,
+  ShieldAlert,
+  ExternalLink,
+  Activity,
 } from "lucide-react";
 
 // ─── Константи ────────────────────────────────────────────────────────────────
@@ -130,14 +136,68 @@ function getDateRange(days: number): { startDate: string; endDate: string } {
   return { startDate: fmt(start), endDate: fmt(end) };
 }
 
+// ─── Мінімалістичний spark-бар для тренду ─────────────────────────────────────
+function SparkBars({ data, color = "bg-blue-400" }: { data: number[]; color?: string }) {
+  if (!data.length) return null;
+  const max = Math.max(...data, 1);
+  return (
+    <div className="flex items-end gap-px h-8 w-full">
+      {data.map((v, i) => (
+        <div
+          key={i}
+          className={`flex-1 rounded-sm ${color} opacity-70 hover:opacity-100 transition-opacity`}
+          style={{ height: `${Math.max(4, (v / max) * 100)}%` }}
+          title={String(v)}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── GSC результати ───────────────────────────────────────────────────────────
 function GscResults({ data }: { data: GscAuditResult }) {
   const [showPosition4, setShowPosition4] = useState(false);
   const [showLowCtr, setShowLowCtr] = useState(false);
+  const [showSitemaps, setShowSitemaps] = useState(true);
+  const [showCrawlErrors, setShowCrawlErrors] = useState(true);
+  const [showCountries, setShowCountries] = useState(false);
+  const [showDevices, setShowDevices] = useState(true);
+  const [showTrend, setShowTrend] = useState(true);
+
+  // Локалізація категорій помилок сканування
+  const crawlCategoryLabel: Record<string, string> = {
+    notFound: "Сторінка не знайдена (404)",
+    serverError: "Серверна помилка (5xx)",
+    soft404: "М'який 404 (soft 404)",
+    authPermission: "Доступ заборонено (403)",
+    roboted: "Заблоковано robots.txt",
+    manyToOneRedirect: "Редирект багатьох на одну",
+    notFollowed: "Не відслідковується",
+    other: "Інше",
+    flashContent: "Flash-контент",
+  };
+
+  // Назви країн зі ISO 3166-1 alpha-3
+  const countryName = (code: string): string => {
+    const map: Record<string, string> = {
+      ukr: "Україна", usa: "США", gbr: "Велика Британія", deu: "Німеччина",
+      fra: "Франція", pol: "Польща", can: "Канада", aus: "Австралія",
+      ind: "Індія", bra: "Бразилія", esp: "Іспанія", ita: "Італія",
+      nld: "Нідерланди", rou: "Румунія", cze: "Чехія", hun: "Угорщина",
+      swe: "Швеція", bel: "Бельгія", che: "Швейцарія", aut: "Австрія",
+      rus: "Росія", blr: "Білорусь", kaz: "Казахстан", isr: "Ізраїль",
+      jpn: "Японія", kor: "Корея", chn: "Китай", sgp: "Сінгапур",
+      zaf: "ПАР", mex: "Мексика", arg: "Аргентина", nzl: "Нова Зеландія",
+    };
+    return map[code.toLowerCase()] ?? code.toUpperCase();
+  };
+
+  const deviceLabel = (d: string) =>
+    d === "MOBILE" ? "📱 Мобільний" : d === "TABLET" ? "📐 Планшет" : "🖥 Десктоп";
 
   return (
     <div className="space-y-6">
-      {/* Загальні метрики */}
+      {/* ── Загальні метрики ─────────────────────────────────────────────────── */}
       <div>
         <SectionHeader title="Загальна картина (Search Console)" icon={BarChart3} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -146,7 +206,7 @@ function GscResults({ data }: { data: GscAuditResult }) {
           <MetricCard
             label="Сер. CTR"
             value={fmtCtr(data.avgCtr)}
-            sub={data.avgCtr < 0.03 ? "Низький — треба покращити мета" : undefined}
+            sub={data.avgCtr < 0.03 ? "Низький — покращіть мета" : undefined}
             trend={data.avgCtr >= 0.05 ? "up" : data.avgCtr < 0.02 ? "down" : "neutral"}
           />
           <MetricCard
@@ -161,7 +221,337 @@ function GscResults({ data }: { data: GscAuditResult }) {
         </div>
       </div>
 
-      {/* Топ-запити */}
+      {/* ── Тренд кліків по датах ────────────────────────────────────────────── */}
+      {data.dateTrend && data.dateTrend.length > 0 && (
+        <div>
+          <button
+            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-3 w-full text-left"
+            onClick={() => setShowTrend(!showTrend)}
+          >
+            <Activity className="h-4 w-4 text-blue-500" />
+            Тренд кліків / показів за обраний період
+            {showTrend ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+          {showTrend && (
+            <div className="border rounded-lg p-4 bg-white">
+              <div className="flex gap-4 mb-2">
+                <div className="flex items-center gap-1.5 text-xs text-blue-600">
+                  <div className="w-3 h-3 rounded bg-blue-400" /> Кліки
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <div className="w-3 h-3 rounded bg-gray-300" /> Покази / 10
+                </div>
+              </div>
+              <div className="relative h-16">
+                {/* Покази (масштабуємо /10 щоб влізти) */}
+                <div className="absolute inset-0 flex items-end gap-px opacity-30">
+                  {data.dateTrend.map((d, i) => {
+                    const max = Math.max(...data.dateTrend!.map((x) => x.impressions), 1);
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 bg-gray-400 rounded-sm"
+                        style={{ height: `${Math.max(2, (d.impressions / max) * 100)}%` }}
+                        title={`${d.date}: ${d.impressions} показів`}
+                      />
+                    );
+                  })}
+                </div>
+                {/* Кліки */}
+                <div className="absolute inset-0 flex items-end gap-px">
+                  {data.dateTrend.map((d, i) => {
+                    const max = Math.max(...data.dateTrend!.map((x) => x.clicks), 1);
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 bg-blue-500 rounded-sm opacity-80 hover:opacity-100 transition-opacity"
+                        style={{ height: `${Math.max(2, (d.clicks / max) * 100)}%` }}
+                        title={`${d.date}: ${d.clicks} кліків`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>{data.dateTrend[0]?.date}</span>
+                <span>{data.dateTrend[data.dateTrend.length - 1]?.date}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Ручні дії Google (посилання у GSC) ──────────────────────────────── */}
+      {data.manualActionsUrl && (
+        <div className="flex items-start gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+          <ShieldAlert className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-orange-800">Ручні дії Google</div>
+            <div className="text-xs text-orange-700 mt-0.5">
+              Google не надає дані про ручні санкції через API. Перевірте вручну в Search Console:
+            </div>
+            <a
+              href={data.manualActionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 underline mt-1"
+            >
+              Відкрити розділ «Ручні дії» в GSC <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* ── Сайтмапи зі Search Console ──────────────────────────────────────── */}
+      {data.sitemaps !== undefined && (
+        <div>
+          <button
+            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-2 w-full text-left"
+            onClick={() => setShowSitemaps(!showSitemaps)}
+          >
+            <FileText className="h-4 w-4 text-blue-500" />
+            Сайтмапи в Search Console — {data.sitemaps.length} файл(ів)
+            {showSitemaps ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+          {showSitemaps && (
+            data.sitemaps.length === 0 ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                ⚠️ Google не знайшов жодних сайтмап для цього сайту. Додайте sitemap.xml у Search Console.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.sitemaps.map((sm, i) => {
+                  const coverage = sm.totalSubmitted > 0
+                    ? Math.round((sm.totalIndexed / sm.totalSubmitted) * 100)
+                    : null;
+                  return (
+                    <div key={i} className="border rounded-lg p-3 bg-white">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <a
+                          href={sm.path}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-mono text-blue-600 hover:underline break-all"
+                        >
+                          {sm.path}
+                        </a>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {sm.errors > 0 && (
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">
+                              {sm.errors} помил.
+                            </span>
+                          )}
+                          {sm.warnings > 0 && (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                              {sm.warnings} попер.
+                            </span>
+                          )}
+                          {sm.isSitemapsIndex && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Індекс</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                        <div className="text-center">
+                          <div className="font-bold text-gray-800 text-base">{fmt(sm.totalSubmitted)}</div>
+                          <div className="text-gray-500">Подано URL</div>
+                        </div>
+                        <div className="text-center">
+                          <div className={`font-bold text-base ${coverage !== null && coverage < 80 ? "text-amber-600" : "text-green-600"}`}>
+                            {fmt(sm.totalIndexed)}
+                          </div>
+                          <div className="text-gray-500">Проіндексовано</div>
+                        </div>
+                        <div className="text-center">
+                          <div className={`font-bold text-base ${coverage !== null && coverage < 80 ? "text-amber-600" : "text-green-600"}`}>
+                            {coverage !== null ? `${coverage}%` : "—"}
+                          </div>
+                          <div className="text-gray-500">Покриття</div>
+                        </div>
+                      </div>
+                      {coverage !== null && coverage < 90 && (
+                        <div className="mt-2">
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${coverage >= 80 ? "bg-amber-400" : "bg-red-400"}`}
+                              style={{ width: `${coverage}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {sm.lastDownloaded && (
+                        <div className="text-xs text-gray-400 mt-1.5">
+                          Остання перевірка Google: {new Date(sm.lastDownloaded).toLocaleDateString("uk-UA")}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ── Помилки сканування ──────────────────────────────────────────────── */}
+      {data.crawlErrors && (
+        <div>
+          <button
+            className="flex items-center gap-2 text-sm font-semibold w-full text-left mb-2"
+            onClick={() => setShowCrawlErrors(!showCrawlErrors)}
+          >
+            <Bug className={`h-4 w-4 ${data.crawlErrors.totalErrors > 0 ? "text-red-500" : "text-green-500"}`} />
+            <span className={data.crawlErrors.totalErrors > 0 ? "text-red-700" : "text-gray-700"}>
+              Помилки сканування Googlebot — {data.crawlErrors.totalErrors > 0 ? `${data.crawlErrors.totalErrors} помилок` : "помилок не знайдено ✅"}
+            </span>
+            {showCrawlErrors ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+          {showCrawlErrors && (
+            <div className="border rounded-lg overflow-hidden">
+              {data.crawlErrors.totalErrors === 0 ? (
+                <div className="p-4 bg-green-50 text-sm text-green-700 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4" /> Googlebot не виявив помилок сканування на цьому сайті.
+                </div>
+              ) : (
+                <div>
+                  {/* Категорії помилок */}
+                  <div className="bg-red-50 p-3 space-y-2">
+                    {data.crawlErrors.categories.map((cat, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 font-medium">
+                          {crawlCategoryLabel[cat.category] ?? cat.category}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {cat.trend === "up" && <TrendingUp className="h-3 w-3 text-red-500" />}
+                          {cat.trend === "down" && <TrendingDown className="h-3 w-3 text-green-500" />}
+                          <span className={`font-bold px-2 py-0.5 rounded-full ${
+                            cat.category === "notFound" ? "bg-red-100 text-red-700" :
+                            cat.category === "serverError" ? "bg-red-200 text-red-800" :
+                            "bg-amber-100 text-amber-700"
+                          }`}>
+                            {cat.latestCount}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Зразки URL 404 */}
+                  {data.crawlErrors.sampleUrls && data.crawlErrors.sampleUrls.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-600 bg-gray-50 px-3 py-2 border-t">
+                        Приклади сторінок 404 (виявлені Googlebot)
+                      </div>
+                      <div className="divide-y">
+                        {data.crawlErrors.sampleUrls.map((s, i) => (
+                          <div key={i} className="px-3 py-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <a
+                                href={s.pageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-mono text-red-600 hover:underline break-all"
+                              >
+                                {s.pageUrl}
+                              </a>
+                              {s.responseCode && (
+                                <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                                  HTTP {s.responseCode}
+                                </span>
+                              )}
+                            </div>
+                            {s.lastCrawled && (
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                Останнє сканування: {new Date(s.lastCrawled).toLocaleDateString("uk-UA")}
+                              </div>
+                            )}
+                            {s.linkedFromUrls && s.linkedFromUrls.length > 0 && (
+                              <div className="text-xs text-gray-400 mt-0.5 truncate">
+                                ← Посилається: {s.linkedFromUrls.join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-t">
+                        💡 Виправте посилання на 404-сторінки або зробіть 301-редирект на актуальний контент.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Розбивка по пристроях у пошуку ─────────────────────────────────── */}
+      {data.searchDeviceBreakdown && data.searchDeviceBreakdown.length > 0 && (
+        <div>
+          <button
+            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-3 w-full text-left"
+            onClick={() => setShowDevices(!showDevices)}
+          >
+            <Smartphone className="h-4 w-4 text-blue-500" />
+            Пристрої в пошуку Google
+            {showDevices ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+          {showDevices && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Барова діаграма */}
+              <div className="border rounded-lg p-4 bg-white space-y-3">
+                {data.searchDeviceBreakdown.map((d, i) => (
+                  <div key={i}>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-600 font-medium">{deviceLabel(d.device)}</span>
+                      <span className="font-bold text-gray-700">{d.clicksPct.toFixed(1)}% ({fmt(d.clicks)} кл.)</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          d.device === "MOBILE" ? "bg-blue-500" :
+                          d.device === "TABLET" ? "bg-purple-400" : "bg-gray-500"
+                        }`}
+                        style={{ width: `${d.clicksPct}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                      <span>Покази: {fmt(d.impressions)}</span>
+                      <span>CTR: {fmtCtr(d.ctr)} · Поз: {fmtPos(d.position)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Інсайти */}
+              <div className="border rounded-lg p-4 bg-blue-50 text-sm text-blue-800">
+                {(() => {
+                  const mob = data.searchDeviceBreakdown?.find((d) => d.device === "MOBILE");
+                  const desk = data.searchDeviceBreakdown?.find((d) => d.device === "DESKTOP");
+                  if (!mob || !desk) return null;
+                  const mobWins = mob.clicksPct > desk.clicksPct;
+                  return (
+                    <div className="space-y-2 text-xs">
+                      <div className="font-semibold text-sm">📊 Аналіз пристроїв</div>
+                      {mobWins ? (
+                        <p>📱 Мобільний трафік домінує ({mob.clicksPct.toFixed(0)}%). Мобільна оптимізація критична.</p>
+                      ) : (
+                        <p>🖥 Десктоп переважає ({desk.clicksPct.toFixed(0)}%). Але мобільна версія важлива для Google.</p>
+                      )}
+                      {mob.position > desk.position + 1 && (
+                        <p className="text-amber-700">⚠️ Мобільні позиції гірші за десктопні ({fmtPos(mob.position)} vs {fmtPos(desk.position)}). Перевірте мобільну версію.</p>
+                      )}
+                      {mob.ctr < desk.ctr * 0.7 && (
+                        <p className="text-amber-700">⚠️ CTR на мобільних нижчий — можливо, title/опис погано відображаються на телефоні.</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Топ-запити ──────────────────────────────────────────────────────── */}
       {data.topQueries.length > 0 && (
         <div>
           <SectionHeader title="Топ-запити (за кліками)" icon={Search} />
@@ -200,7 +590,7 @@ function GscResults({ data }: { data: GscAuditResult }) {
         </div>
       )}
 
-      {/* Позиції 4–10: «низько висять» можливості */}
+      {/* ── Позиції 4–10: «низько висять» можливості ────────────────────────── */}
       {data.position4to10.length > 0 && (
         <div>
           <button
@@ -241,7 +631,7 @@ function GscResults({ data }: { data: GscAuditResult }) {
         </div>
       )}
 
-      {/* Сторінки з низьким CTR */}
+      {/* ── Сторінки з низьким CTR ──────────────────────────────────────────── */}
       {data.lowCtrHighPos.length > 0 && (
         <div>
           <button
@@ -277,6 +667,54 @@ function GscResults({ data }: { data: GscAuditResult }) {
               <div className="px-3 py-2 text-xs text-red-600">
                 💡 Ці сторінки показуються в пошуку, але рідко натискаються. Покращте title та meta description.
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Топ країн ───────────────────────────────────────────────────────── */}
+      {data.topCountries && data.topCountries.length > 0 && (
+        <div>
+          <button
+            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-3 w-full text-left"
+            onClick={() => setShowCountries(!showCountries)}
+          >
+            <Map className="h-4 w-4 text-blue-500" />
+            Географія пошукового трафіку (топ країн)
+            {showCountries ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+          {showCountries && (
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">Країна</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">Кліки</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">Покази</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">CTR</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600">Позиція</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.topCountries.map((c, i) => (
+                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="px-3 py-1.5 font-medium text-gray-800">{countryName(c.country)}</td>
+                      <td className="text-right px-3 py-1.5 font-semibold text-gray-700">{fmt(c.clicks)}</td>
+                      <td className="text-right px-3 py-1.5 text-gray-500">{fmt(c.impressions)}</td>
+                      <td className="text-right px-3 py-1.5">
+                        <span className={c.ctr < 0.02 ? "text-red-500" : c.ctr > 0.1 ? "text-green-600" : "text-gray-700"}>
+                          {fmtCtr(c.ctr)}
+                        </span>
+                      </td>
+                      <td className="text-right px-3 py-1.5">
+                        <span className={c.position <= 3 ? "text-green-600 font-bold" : c.position <= 10 ? "text-blue-600" : "text-gray-400"}>
+                          {fmtPos(c.position)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

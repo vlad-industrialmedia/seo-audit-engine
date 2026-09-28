@@ -724,6 +724,64 @@ export interface Custom404Check {
   note: string;
 }
 
+// ─── Mobile PageSpeed (окремо від desktop) ───────────────────────────────────
+export interface MobilePageSpeedCheck {
+  status: TechCheckStatus;
+  performanceScore: number | null;    // 0-100 для mobile
+  lcpMs: number | null;
+  clsScore: number | null;
+  fcpMs: number | null;
+  tbtMs: number | null;
+  note: string;
+}
+
+// ─── RSS / Atom feed ─────────────────────────────────────────────────────────
+export interface RssFeedCheck {
+  status: TechCheckStatus;
+  found: boolean;
+  feedUrls: string[];          // знайдені URL фідів
+  feedType: string | null;     // "RSS" | "Atom" | null
+  note: string;
+}
+
+// ─── HTTP/2 підтримка ─────────────────────────────────────────────────────────
+export interface Http2Check {
+  status: TechCheckStatus;
+  supported: boolean;
+  protocol: string | null;     // "HTTP/1.1" | "HTTP/2" | "HTTP/3" | null
+  note: string;
+}
+
+// ─── Оптимізація зображень (з домашньої сторінки) ────────────────────────────
+export interface ImageOptCheck {
+  status: TechCheckStatus;
+  totalImgs: number;
+  lazyLoadedImgs: number;      // кількість з loading="lazy"
+  lazyLoadRatio: number;       // 0-1
+  hasWebP: boolean;            // використовуються WebP або AVIF
+  hasModernFormat: boolean;    // WebP або AVIF наявні в src
+  oversizedImgs: number;       // без width/height атрибутів
+  note: string;
+}
+
+// ─── Внутрішні посилання домашньої сторінки ──────────────────────────────────
+export interface InternalLinksCheck {
+  status: TechCheckStatus;
+  totalInternalLinks: number;
+  totalExternalLinks: number;
+  noFollowExternal: number;    // external з rel="nofollow"
+  anchorTextEmpty: number;     // посилання без тексту (лише іконки)
+  note: string;
+}
+
+// ─── Cookie / GDPR ───────────────────────────────────────────────────────────
+export interface CookieConsentCheck {
+  status: TechCheckStatus;
+  detected: boolean;           // знайдено cookie banner або consent скрипт
+  provider: string | null;     // "Cookiebot" | "OneTrust" | "CookieYes" | "Custom" | null
+  note: string;
+}
+
 export interface TechAuditResult {
   domain: string;
   checkedAt: string;
@@ -740,7 +798,14 @@ export interface TechAuditResult {
   serverInfo?: ServerInfoCheck;
   hreflang?: HreflangCheck;
   pageTech?: PageTechCheck;
-  custom404?: Custom404Check;  // перевірка кастомної 404-сторінки
+  custom404?: Custom404Check;       // перевірка кастомної 404-сторінки
+  // ── Нові розширені перевірки ──────────────────────────────────────────────
+  mobilePageSpeed?: MobilePageSpeedCheck;  // окремий PageSpeed для мобільних
+  rssFeed?: RssFeedCheck;                  // RSS / Atom feed
+  http2?: Http2Check;                      // HTTP/2 підтримка
+  imageOpt?: ImageOptCheck;               // оптимізація зображень
+  internalLinks?: InternalLinksCheck;     // внутрішні посилання
+  cookieConsent?: CookieConsentCheck;     // GDPR / cookie consent
   error?: string;
 }
 
@@ -796,6 +861,74 @@ export interface GscCoverageData {
   warning?: number;
 }
 
+// ─── GSC Сайтмапи ─────────────────────────────────────────────────────────────
+export interface GscSitemapContent {
+  type: string;         // "web" | "image" | "video" | "news"
+  submitted: number;    // кількість URL у сайтмапі
+  indexed: number;      // кількість проіндексованих URL
+}
+
+export interface GscSitemapData {
+  path: string;                    // URL сайтмапи
+  lastDownloaded: string | null;   // дата останнього завантаження Googlebot
+  isPending: boolean;
+  isSitemapsIndex: boolean;        // чи є це індексним файлом
+  type: string;                    // "sitemap" | "sitemapsIndex"
+  warnings: number;                // кількість попереджень
+  errors: number;                  // кількість помилок
+  contents: GscSitemapContent[];
+  totalSubmitted: number;          // всього URL подано
+  totalIndexed: number;            // всього URL проіндексовано
+}
+
+// ─── GSC Помилки сканування ───────────────────────────────────────────────────
+export interface GscCrawlErrorCategory {
+  category: string;    // "notFound" | "serverError" | "soft404" | "roboted" | "authPermission" | "other"
+  platform: string;    // "web" | "mobile"
+  latestCount: number; // кількість помилок станом на останній знімок
+  trend: "up" | "down" | "stable";  // тренд (порівняно з тижнем тому)
+}
+
+export interface GscCrawlErrorSample {
+  pageUrl: string;
+  lastCrawled: string | null;
+  responseCode: number | null;
+  linkedFromUrls?: string[];   // сторінки, що посилаються на цей URL
+}
+
+export interface GscCrawlErrors {
+  categories: GscCrawlErrorCategory[];
+  sampleUrls?: GscCrawlErrorSample[];  // зразки URL для категорії notFound
+  totalErrors: number;
+}
+
+// ─── GSC Розбивка по країнах ──────────────────────────────────────────────────
+export interface GscCountryData {
+  country: string;      // код країни (ISO 3166-1 alpha-3, напр. "ukr", "usa", "deu")
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+// ─── GSC Розбивка по пристроях (пошук) ───────────────────────────────────────
+export interface GscSearchDeviceData {
+  device: string;       // "MOBILE" | "DESKTOP" | "TABLET"
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+  clicksPct: number;    // частка кліків (%)
+}
+
+// ─── GSC Тренд по датах ──────────────────────────────────────────────────────
+export interface GscDateData {
+  date: string;         // YYYY-MM-DD
+  clicks: number;
+  impressions: number;
+}
+
+// ─── GSC Результат розширеного аудиту ─────────────────────────────────────────
 export interface GscAuditResult {
   property: string;
   dateRange: { start: string; end: string };
@@ -809,6 +942,19 @@ export interface GscAuditResult {
   lowCtrHighPos: GscPageData[];
   // Сторінки на позиції 4-10 (потенціал для зростання)
   position4to10: GscSearchQuery[];
+  // ── Нові поля (розширений аудит) ──────────────────────────────────────────
+  // Сайтмапи зі Search Console
+  sitemaps?: GscSitemapData[];
+  // Помилки сканування Googlebot
+  crawlErrors?: GscCrawlErrors;
+  // Розбивка по країнах (топ-10 за кліками)
+  topCountries?: GscCountryData[];
+  // Розбивка по пристроях у пошуку
+  searchDeviceBreakdown?: GscSearchDeviceData[];
+  // Тренд кліків/показів по датах
+  dateTrend?: GscDateData[];
+  // Примітка: ручні дії API не повертає — посилання для ручної перевірки
+  manualActionsUrl?: string;
   createdAt: string;
 }
 
