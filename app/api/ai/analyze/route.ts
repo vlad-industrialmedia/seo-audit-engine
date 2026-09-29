@@ -57,7 +57,20 @@ export async function POST(req: NextRequest) {
       }
 
       case "gemini": {
-        const modelId = model || "gemini-1.5-flash";
+        // Нормалізація ID — деякі застарілі моделі видалені Google (напр. gemini-2.0-flash-exp → gemini-2.0-flash)
+        const GEMINI_ID_MAP: Record<string, string> = {
+          "gemini-2.0-flash":          "gemini-2.0-flash",
+          "gemini-2.0-flash-exp":      "gemini-2.0-flash",
+          "gemini-2.0-flash-lite":     "gemini-2.0-flash-lite",
+          "gemini-2.0-pro-exp":        "gemini-2.0-pro-exp-03-25",
+          "gemini-2.0-pro-exp-03-25":  "gemini-2.0-pro-exp-03-25",
+          "gemini-1.5-flash":          "gemini-1.5-flash",
+          "gemini-1.5-flash-8b":       "gemini-1.5-flash-8b",
+          "gemini-1.5-pro":            "gemini-1.5-pro",
+          "gemini-1.0-pro":            "gemini-1.0-pro",
+        };
+        const rawModel = (model || "gemini-2.0-flash").trim().toLowerCase().replace(/\s+/g, "-");
+        const modelId = GEMINI_ID_MAP[rawModel] ?? GEMINI_ID_MAP[model] ?? rawModel;
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
           {

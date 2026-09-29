@@ -882,6 +882,8 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   // Чи вже робилась хоча б одна спроба завантажити властивості
   const [propertiesLoaded, setPropertiesLoaded] = useState(false);
+  // Помилка завантаження GA4 властивостей (окремо від ga4Error аудиту)
+  const [ga4AccountsError, setGa4AccountsError] = useState<string | null>(null);
 
   // ─── Загальні налаштування ────────────────────────────────────────────────
   const [dateRange, setDateRange] = useState<28 | 90 | 180>(90);
@@ -975,6 +977,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
       }
 
       // GA4 властивості
+      setGa4AccountsError(null);
       const ga4Res = await fetch("/api/ga4/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -984,6 +987,12 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
         const { properties } = (await ga4Res.json()) as { properties: Ga4Property[] };
         setGa4Properties(properties);
         if (properties.length > 0) setSelectedGa4Property(properties[0].property);
+      } else {
+        // Логуємо та показуємо помилку GA4 Admin API (403 = API не увімкнено в Cloud Console)
+        const errData = await ga4Res.json().catch(() => ({})) as { error?: string; detail?: string };
+        const errMsg = errData.detail ?? errData.error ?? `HTTP ${ga4Res.status}`;
+        console.warn("[GA4 accounts]", ga4Res.status, errMsg);
+        setGa4AccountsError(errMsg);
       }
     } finally {
       setPropertiesLoading(false);
@@ -1011,6 +1020,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
     // Скидаємо стан завантаження властивостей при виході
     setPropertiesLoading(false);
     setPropertiesLoaded(false);
+    setGa4AccountsError(null);
   }, []);
 
   // ─── GSC аудит ────────────────────────────────────────────────────────────
@@ -1470,7 +1480,12 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-xs text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2">
                   <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                  <span>GA4 властивостей не знайдено через Admin API. Введіть Property ID вручну.</span>
+                  <span>
+                    {ga4AccountsError
+                      ? `Admin API помилка: ${ga4AccountsError.slice(0, 120)}`
+                      : "GA4 властивостей не знайдено через Admin API."}
+                    {" "}Введіть Property ID вручну.
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <input
