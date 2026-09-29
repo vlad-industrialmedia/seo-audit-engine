@@ -873,6 +873,9 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
   // Ініціалізуємо з кешованого результату (якщо є збережений аудит)
   const [ga4Result, setGa4Result] = useState<Ga4AuditResult | null>(initialGa4Audit ?? null);
   const [ga4Error, setGa4Error] = useState<string | null>(null);
+  // Режим ручного введення property ID (коли авто-завантаження не дало результатів)
+  const [ga4ManualMode, setGa4ManualMode] = useState(false);
+  const [ga4ManualPropertyId, setGa4ManualPropertyId] = useState<string>("");
 
   // ─── Стан завантаження властивостей (окремо від gscLoading/ga4Loading) ────
   // Не показуємо спінер поки не почалось завантаження (до логіну = false)
@@ -1038,8 +1041,11 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
   }, [accessToken, selectedGscProperty, dateRange, onGscResult]);
 
   // ─── GA4 аудит ────────────────────────────────────────────────────────────
-  const runGa4Audit = useCallback(async () => {
-    if (!accessToken || !selectedGa4Property) return;
+  // overridePropertyId: дозволяє передати ID напряму (оминаючи стан ручного режиму)
+  const runGa4Audit = useCallback(async (overridePropertyId?: string) => {
+    // Пріоритет: override → ручний режим → дропдаун
+    const propertyId = overridePropertyId ?? (ga4ManualMode ? ga4ManualPropertyId.trim() : selectedGa4Property);
+    if (!accessToken || !propertyId) return;
     setGa4Loading(true);
     setGa4Error(null);
     const { startDate, endDate } = getDateRange(dateRange);
@@ -1047,7 +1053,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
       const res = await fetch("/api/ga4/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken, propertyId: selectedGa4Property, startDate, endDate }),
+        body: JSON.stringify({ accessToken, propertyId, startDate, endDate }),
       });
       const data = (await res.json()) as { result?: Ga4AuditResult; error?: string; detail?: string };
       if (!res.ok || data.error) {
@@ -1062,7 +1068,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
     } finally {
       setGa4Loading(false);
     }
-  }, [accessToken, selectedGa4Property, dateRange, onGa4Result]);
+  }, [accessToken, selectedGa4Property, ga4ManualMode, ga4ManualPropertyId, dateRange, onGa4Result]);
 
   // ─── Збереження Client ID ─────────────────────────────────────────────────
   const saveClientId = useCallback(() => {
@@ -1368,8 +1374,53 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
 
           {/* GA4 властивість */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">GA4 властивість</label>
-            {ga4Properties.length > 0 ? (
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-gray-500">GA4 властивість</label>
+              {/* Кнопка-олівець: перемикає між авто-списком та ручним введенням */}
+              {(ga4Properties.length > 0 || propertiesLoaded) && (
+                <button
+                  type="button"
+                  title={ga4ManualMode ? "Показати список акаунтів" : "Ввести ID вручну"}
+                  onClick={() => setGa4ManualMode((v) => !v)}
+                  className="text-xs text-gray-400 hover:text-violet-600 flex items-center gap-1 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  {ga4ManualMode ? "Зі списку" : "Вручну"}
+                </button>
+              )}
+            </div>
+
+            {ga4ManualMode ? (
+              /* Ручне введення property ID */
+              <div className="space-y-1.5">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={ga4ManualPropertyId}
+                    onChange={(e) => setGa4ManualPropertyId(e.target.value)}
+                    placeholder="properties/123456789"
+                    className="flex-1 border rounded-lg px-3 py-1.5 text-sm text-gray-800 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  <Button
+                    onClick={() => runGa4Audit()}
+                    disabled={ga4Loading || !ga4ManualPropertyId.trim()}
+                    size="sm"
+                    className="whitespace-nowrap"
+                  >
+                    {ga4Loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                    {ga4Loading ? "" : "Аудит GA4"}
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Формат: <code className="bg-gray-100 px-1 rounded">properties/123456789</code> — знайти в{" "}
+                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">
+                    GA4 → Admin → Property Settings
+                  </a>
+                </p>
+              </div>
+            ) : ga4Properties.length > 0 ? (
               <div className="flex gap-2">
                 <select
                   value={selectedGa4Property}
@@ -1383,7 +1434,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                   ))}
                 </select>
                 <Button
-                  onClick={runGa4Audit}
+                  onClick={() => runGa4Audit()}
                   disabled={ga4Loading || !selectedGa4Property}
                   size="sm"
                   className="whitespace-nowrap"
@@ -1399,10 +1450,40 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                 Завантаження властивостей...
               </div>
             ) : propertiesLoaded ? (
-              /* Завантаження завершено, але GA4 властивостей не знайдено */
-              <div className="flex items-center gap-2 text-xs text-gray-400 border rounded-lg px-3 py-2">
-                <AlertCircle className="h-3 w-3" />
-                GA4 властивостей не знайдено для цього акаунту
+              /* Завантаження завершено, але GA4 властивостей не знайдено — пропонуємо ручний режим */
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2">
+                  <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                  <span>GA4 властивостей не знайдено через Admin API. Введіть Property ID вручну.</span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={ga4ManualPropertyId}
+                    onChange={(e) => setGa4ManualPropertyId(e.target.value)}
+                    placeholder="properties/123456789"
+                    className="flex-1 border rounded-lg px-3 py-1.5 text-sm text-gray-800 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  <Button
+                    onClick={() => {
+                      // Передаємо ID напряму щоб не чекати оновлення стану
+                      setGa4ManualMode(true);
+                      runGa4Audit(ga4ManualPropertyId.trim());
+                    }}
+                    disabled={ga4Loading || !ga4ManualPropertyId.trim()}
+                    size="sm"
+                    className="whitespace-nowrap"
+                  >
+                    {ga4Loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                    {ga4Loading ? "" : "Аудит GA4"}
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Формат: <code className="bg-gray-100 px-1 rounded">properties/123456789</code> — знайти в{" "}
+                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">
+                    GA4 → Admin → Property Settings
+                  </a>
+                </p>
               </div>
             ) : (
               /* Ще не авторизований */

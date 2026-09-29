@@ -156,15 +156,22 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
 
     case "gemini": {
       // Карта дружніх назв → реальних API-ідентифікаторів Gemini
+      // Мапи: старі/display-назви → актуальні API-ідентифікатори Google AI Studio
+      // gemini-2.0-flash-exp видалено Google (404), тепер тільки gemini-2.0-flash
       const GEMINI_ID_MAP: Record<string, string> = {
-        "gemini-2.0-flash": "gemini-2.0-flash",
-        "gemini-2.0-flash-exp": "gemini-2.0-flash-exp",
-        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite",
-        "gemini-2.0-pro-exp": "gemini-2.0-pro-exp",
-        "gemini-1.5-flash": "gemini-1.5-flash",
-        "gemini-1.5-flash-8b": "gemini-1.5-flash-8b",
-        "gemini-1.5-pro": "gemini-1.5-pro",
-        "gemini-1.0-pro": "gemini-1.0-pro",
+        "gemini-2.0-flash":        "gemini-2.0-flash",
+        "gemini-2.0-flash-exp":    "gemini-2.0-flash",        // депрекований alias → stable
+        "gemini-2.0-flash-lite":   "gemini-2.0-flash-lite",
+        "gemini-2.0-pro-exp":      "gemini-2.0-pro-exp-03-25", // актуальний endpoint
+        "gemini-2.0-pro-exp-03-25":"gemini-2.0-pro-exp-03-25",
+        "gemini-1.5-flash":        "gemini-1.5-flash",
+        "gemini-1.5-flash-8b":     "gemini-1.5-flash-8b",
+        "gemini-1.5-pro":          "gemini-1.5-pro",
+        "gemini-1.0-pro":          "gemini-1.0-pro",
+        // Display-назви (якщо користувач вводив вручну)
+        "gemini 2.0 flash":        "gemini-2.0-flash",
+        "gemini 1.5 flash":        "gemini-1.5-flash",
+        "gemini 1.5 pro":          "gemini-1.5-pro",
       };
       // Нормалізуємо: прибираємо зайві пробіли, lowercase, замінюємо пробіли на дефіс
       const rawModel = (model || "gemini-2.0-flash").trim();

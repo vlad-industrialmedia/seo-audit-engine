@@ -30,9 +30,11 @@ export const AI_PROVIDER_CONFIGS: Record<AIProvider, Omit<AIProviderConfig, "api
     label: "Google Gemini",
     description: "Gemini — ідеальний для великих SF-файлів (до 2M токенів контексту)",
     models: [
-      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", contextWindow: 1000000, costPer1KInput: 0.000075, costPer1KOutput: 0.0003, recommended: true },
+      // gemini-2.0-flash — стабільний GA-релізод (замінив -exp який видалено Google)
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", contextWindow: 1048576, costPer1KInput: 0, costPer1KOutput: 0, recommended: true },
+      { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", contextWindow: 1048576, costPer1KInput: 0, costPer1KOutput: 0 },
+      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", contextWindow: 1000000, costPer1KInput: 0.000075, costPer1KOutput: 0.0003 },
       { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", contextWindow: 2000000, costPer1KInput: 0.00125, costPer1KOutput: 0.005 },
-      { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash", contextWindow: 1000000, costPer1KInput: 0, costPer1KOutput: 0 },
     ],
   },
   grok: {
