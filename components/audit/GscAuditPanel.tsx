@@ -1041,10 +1041,26 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
   }, [accessToken, selectedGscProperty, dateRange, onGscResult]);
 
   // ─── GA4 аудит ────────────────────────────────────────────────────────────
+  // Нормалізує різні формати GA4 Property ID до формату API: "properties/123456789"
+  // Підтримує: "properties/123456789", "123456789", "a198087893p288598866" (з URL GA4)
+  function normalizeGa4PropertyId(raw: string): string {
+    const trimmed = raw.trim();
+    // Формат з URL GA4: a{accountId}p{propertyId}
+    const urlMatch = trimmed.match(/^a\d+p(\d+)$/i);
+    if (urlMatch) return `properties/${urlMatch[1]}`;
+    // Вже правильний формат
+    if (trimmed.startsWith("properties/")) return trimmed;
+    // Просто числовий ID
+    if (/^\d+$/.test(trimmed)) return `properties/${trimmed}`;
+    return trimmed;
+  }
+
   // overridePropertyId: дозволяє передати ID напряму (оминаючи стан ручного режиму)
   const runGa4Audit = useCallback(async (overridePropertyId?: string) => {
     // Пріоритет: override → ручний режим → дропдаун
-    const propertyId = overridePropertyId ?? (ga4ManualMode ? ga4ManualPropertyId.trim() : selectedGa4Property);
+    const raw = overridePropertyId ?? (ga4ManualMode ? ga4ManualPropertyId.trim() : selectedGa4Property);
+    if (!accessToken || !raw) return;
+    const propertyId = normalizeGa4PropertyId(raw);
     if (!accessToken || !propertyId) return;
     setGa4Loading(true);
     setGa4Error(null);
@@ -1400,7 +1416,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                     type="text"
                     value={ga4ManualPropertyId}
                     onChange={(e) => setGa4ManualPropertyId(e.target.value)}
-                    placeholder="properties/123456789"
+                    placeholder="a198087893p288598866 або properties/123456789"
                     className="flex-1 border rounded-lg px-3 py-1.5 text-sm text-gray-800 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                   <Button
@@ -1414,10 +1430,10 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                   </Button>
                 </div>
                 <p className="text-xs text-gray-400">
-                  Формат: <code className="bg-gray-100 px-1 rounded">properties/123456789</code> — знайти в{" "}
-                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">
-                    GA4 → Admin → Property Settings
-                  </a>
+                  Приймається:{" "}
+                  <code className="bg-gray-100 px-1 rounded">a198087893p288598866</code> (з URL GA4),{" "}
+                  <code className="bg-gray-100 px-1 rounded">properties/123456789</code> або просто{" "}
+                  <code className="bg-gray-100 px-1 rounded">123456789</code>
                 </p>
               </div>
             ) : ga4Properties.length > 0 ? (
@@ -1461,7 +1477,7 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                     type="text"
                     value={ga4ManualPropertyId}
                     onChange={(e) => setGa4ManualPropertyId(e.target.value)}
-                    placeholder="properties/123456789"
+                    placeholder="a198087893p288598866 або properties/123456789"
                     className="flex-1 border rounded-lg px-3 py-1.5 text-sm text-gray-800 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                   <Button
@@ -1479,10 +1495,10 @@ export function GscAuditPanel({ domain, initialGscAudit, initialGa4Audit, onGscR
                   </Button>
                 </div>
                 <p className="text-xs text-gray-400">
-                  Формат: <code className="bg-gray-100 px-1 rounded">properties/123456789</code> — знайти в{" "}
-                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">
-                    GA4 → Admin → Property Settings
-                  </a>
+                  Приймається:{" "}
+                  <code className="bg-gray-100 px-1 rounded">a198087893p288598866</code> (з URL GA4),{" "}
+                  <code className="bg-gray-100 px-1 rounded">properties/123456789</code> або просто{" "}
+                  <code className="bg-gray-100 px-1 rounded">123456789</code>
                 </p>
               </div>
             ) : (
