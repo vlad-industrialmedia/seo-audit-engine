@@ -769,6 +769,8 @@ export interface ImageOptCheck {
   hasWebP: boolean;            // використовуються WebP або AVIF
   hasModernFormat: boolean;    // WebP або AVIF наявні в src
   oversizedImgs: number;       // без width/height атрибутів
+  imgsWithoutAlt?: number;     // зображення без alt атрибуту
+  imgsWithEmptyAlt?: number;   // зображення з порожнім alt=""
   note: string;
 }
 

@@ -155,7 +155,22 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
     }
 
     case "gemini": {
-      const modelId = model || "gemini-1.5-flash";
+      // Карта дружніх назв → реальних API-ідентифікаторів Gemini
+      const GEMINI_ID_MAP: Record<string, string> = {
+        "gemini-2.0-flash": "gemini-2.0-flash",
+        "gemini-2.0-flash-exp": "gemini-2.0-flash-exp",
+        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite",
+        "gemini-2.0-pro-exp": "gemini-2.0-pro-exp",
+        "gemini-1.5-flash": "gemini-1.5-flash",
+        "gemini-1.5-flash-8b": "gemini-1.5-flash-8b",
+        "gemini-1.5-pro": "gemini-1.5-pro",
+        "gemini-1.0-pro": "gemini-1.0-pro",
+      };
+      // Нормалізуємо: прибираємо зайві пробіли, lowercase, замінюємо пробіли на дефіс
+      const rawModel = (model || "gemini-2.0-flash").trim();
+      const normalizedKey = rawModel.toLowerCase().replace(/\s+/g, "-");
+      const modelId = GEMINI_ID_MAP[normalizedKey] ?? GEMINI_ID_MAP[rawModel] ?? normalizedKey;
+
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
         {
@@ -190,6 +205,56 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
         }),
       });
       if (!res.ok) throw new Error(`Grok error: ${res.status}`);
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "";
+    }
+
+    case "groq": {
+      // Groq OpenAI-сумісний API
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model || "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: "Ти SEO-спеціаліст. Відповідай JSON українською мовою." },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Groq error ${res.status}: ${errText.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "";
+    }
+
+    case "cerebras": {
+      // Cerebras OpenAI-сумісний API
+      const res = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model || "llama-3.3-70b",
+          messages: [
+            { role: "system", content: "Ти SEO-спеціаліст. Відповідай JSON українською мовою." },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Cerebras error ${res.status}: ${errText.slice(0, 200)}`);
+      }
       const data = await res.json();
       return data.choices?.[0]?.message?.content || "";
     }

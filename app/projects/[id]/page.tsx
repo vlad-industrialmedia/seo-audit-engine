@@ -440,6 +440,7 @@ export default function ProjectPage() {
                       );
                   return p ? (settings.aiProviders[p]?.model ?? "") : "";
                 })()}
+                aiAllProviders={settings.aiProviders}
               />
             </div>
           )}
@@ -493,6 +494,7 @@ function AuditView({
   aiProvider,
   aiApiKey,
   aiModel,
+  aiAllProviders,
   onTechResult,
   onGscResult,
   onGa4Result,
@@ -511,6 +513,8 @@ function AuditView({
   aiProvider?: AIProvider;
   aiApiKey?: string;
   aiModel?: string;
+  // Усі налаштовані провайдери для вибору в панелі AI аналізу
+  aiAllProviders?: Record<AIProvider, Partial<import("@/types").AIProviderConfig>>;
   // Колбеки для збереження результатів у кеш (батьківський store)
   onTechResult?: (r: import("@/types").TechAuditResult) => void;
   onGscResult?: (r: import("@/types").GscAuditResult) => void;
@@ -711,6 +715,7 @@ function AuditView({
               provider={aiProvider ?? "anthropic"}
               apiKey={aiApiKey ?? ""}
               model={aiModel ?? ""}
+              allProviders={aiAllProviders}
               initialResult={audit.cachedAiResult}
               onResult={onAiResult}
             />

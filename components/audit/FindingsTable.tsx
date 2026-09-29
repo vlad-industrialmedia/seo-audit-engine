@@ -285,14 +285,18 @@ Recommendation: ${finding.recommendation ?? ""}`;
                 </div>
                 <div className="space-y-0.5 font-mono text-xs max-h-48 overflow-y-auto">
                   {urlsToShow.map((url) => (
-                    <div key={url} className="flex items-center gap-1 group">
-                      <span className="truncate text-muted-foreground group-hover:text-foreground transition-colors">
+                    <div key={url} className="flex items-center gap-1">
+                      {/* Клікабельне посилання з видимою іконкою — не лише при hover */}
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 hover:underline transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {url}
-                      </span>
-                      <a href={url} target="_blank" rel="noopener noreferrer"
-                        className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all">
-                        <ExternalLink className="h-3 w-3" />
                       </a>
+                      <ExternalLink className="h-3 w-3 flex-shrink-0 text-blue-400 dark:text-blue-500" />
                     </div>
                   ))}
                 </div>

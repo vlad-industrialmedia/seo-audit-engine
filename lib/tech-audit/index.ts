@@ -853,6 +853,15 @@ function checkImageOptFromHtml(html: string): ImageOptCheck {
   const hasWebP = /\.webp["'\s?]/i.test(html) || /image\/webp/i.test(html);
   const hasAvif = /\.avif["'\s?]/i.test(html) || /image\/avif/i.test(html);
   const hasModernFormat = hasWebP || hasAvif;
+
+  // Зображення без alt атрибуту
+  const imgsWithoutAlt = imgTags.filter((t) => !/\balt\s*=/i.test(t)).length;
+  // Зображення з порожнім alt="" (декоративні — це норма, але рахуємо для звіту)
+  const imgsWithEmptyAlt = imgTags.filter((t) => {
+    const m = t.match(/\balt\s*=\s*["']([^"']*)["']/i);
+    return m !== null && m[1].trim() === "";
+  }).length;
+
   // Зображення з явно великими розмірами в атрибутах (> 1920 або > 1080)
   const oversizedImgs = imgTags.filter((t) => {
     const w = t.match(/width\s*=\s*["']?(\d+)/i);
@@ -864,13 +873,21 @@ function checkImageOptFromHtml(html: string): ImageOptCheck {
   if (totalImgs === 0) {
     return {
       status: "ok", totalImgs: 0, lazyLoadedImgs: 0, lazyLoadRatio: 1,
-      hasWebP, hasModernFormat, oversizedImgs: 0,
+      hasWebP, hasModernFormat, oversizedImgs: 0, imgsWithoutAlt: 0, imgsWithEmptyAlt: 0,
       note: "Зображень на головній сторінці не знайдено.",
     };
   }
 
   const parts: string[] = [`Зображень на головній: ${totalImgs}.`];
   let status: ImageOptCheck["status"] = "ok";
+
+  // Перевірка alt атрибутів
+  if (imgsWithoutAlt > 0) {
+    status = "issue";
+    parts.push(`⚠️ Alt відсутній: ${imgsWithoutAlt}/${totalImgs} зображень. Додайте описовий alt для SEO та доступності.`);
+  } else {
+    parts.push(`Alt теги: всі ${totalImgs} заповнені ✅`);
+  }
 
   if (lazyLoadRatio < 0.5 && totalImgs >= 3) {
     status = "issue";
@@ -891,7 +908,12 @@ function checkImageOptFromHtml(html: string): ImageOptCheck {
     parts.push(`⚠️ ${oversizedImgs} зображень > 1920px — перевірте масштабування.`);
   }
 
-  return { status, totalImgs, lazyLoadedImgs, lazyLoadRatio, hasWebP, hasModernFormat, oversizedImgs, note: parts.join(" ") };
+  return {
+    status, totalImgs, lazyLoadedImgs, lazyLoadRatio,
+    hasWebP, hasModernFormat, oversizedImgs,
+    imgsWithoutAlt, imgsWithEmptyAlt,
+    note: parts.join(" "),
+  };
 }
 
 // ─── Внутрішня перелінковка (аналіз посилань на головній сторінці) ───────────

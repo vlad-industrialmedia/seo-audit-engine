@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { Finding, PageType, AIProvider, AiAuditAnalysis } from "@/types";
+import { useState, useMemo } from "react";
+import type { Finding, PageType, AIProvider, AiAuditAnalysis, AIProviderConfig } from "@/types";
 
 interface Props {
   findings: Finding[];
@@ -12,9 +12,12 @@ interface Props {
     nonIndexableCount: number;
   };
   domain: string;
+  // Дефолтний провайдер з налаштувань
   provider: AIProvider;
   apiKey: string;
   model: string;
+  // Усі налаштовані провайдери — для селектора вибору в панелі
+  allProviders?: Record<AIProvider, Partial<AIProviderConfig>>;
   // Кешування результату між перезавантаженнями проєкту
   initialResult?: AiAuditAnalysis | null;
   onResult?: (result: AiAuditAnalysis) => void;
@@ -34,6 +37,16 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "Низьке",
 };
 
+// Відображувані назви провайдерів
+const PROVIDER_LABELS: Record<AIProvider, string> = {
+  anthropic: "Anthropic",
+  openrouter: "OpenRouter",
+  gemini: "Gemini",
+  grok: "Grok",
+  groq: "Groq",
+  cerebras: "Cerebras",
+};
+
 export default function AiAnalysisPanel({
   findings,
   sfStats,
@@ -41,6 +54,7 @@ export default function AiAnalysisPanel({
   provider,
   apiKey,
   model,
+  allProviders,
   initialResult,
   onResult,
 }: Props) {
@@ -50,8 +64,45 @@ export default function AiAnalysisPanel({
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  // Вибраний провайдер та модель (можна змінити прямо в панелі)
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>(provider);
+  const [selectedModel, setSelectedModel] = useState<string>(model);
+
+  // Список провайдерів з API-ключем (валідованих або хоча б налаштованих)
+  const availableProviders = useMemo(() => {
+    if (!allProviders) {
+      // Якщо allProviders не передано, показуємо лише поточний провайдер
+      return apiKey ? [{ id: provider, label: PROVIDER_LABELS[provider], models: [] as string[], defaultModel: model }] : [];
+    }
+    return (Object.keys(allProviders) as AIProvider[])
+      .filter((p) => allProviders[p]?.apiKey)
+      .map((p) => {
+        const cfg = allProviders[p];
+        const models = cfg?.models?.map((m) => m.id) ?? [];
+        return {
+          id: p,
+          label: `${PROVIDER_LABELS[p]}${cfg?.validated ? " ✓" : ""}`,
+          models,
+          defaultModel: cfg?.model ?? "",
+        };
+      });
+  }, [allProviders, provider, apiKey, model]);
+
+  // Отримуємо API-ключ для вибраного провайдера
+  const selectedApiKey = useMemo(() => {
+    if (!allProviders) return apiKey;
+    return allProviders[selectedProvider]?.apiKey ?? "";
+  }, [allProviders, selectedProvider, apiKey]);
+
+  // При зміні провайдера — оновлюємо модель на дефолтну для нового провайдера
+  function handleProviderChange(newProvider: AIProvider) {
+    setSelectedProvider(newProvider);
+    const defaultMdl = allProviders?.[newProvider]?.model ?? "";
+    setSelectedModel(defaultMdl);
+  }
+
   async function runAnalysis() {
-    if (!apiKey || !provider) {
+    if (!selectedApiKey || !selectedProvider) {
       setError("Не налаштовано AI провайдер. Перейдіть в налаштування.");
       return;
     }
@@ -71,7 +122,14 @@ export default function AiAnalysisPanel({
       const res = await fetch("/api/ai/analyze-by-type", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ findings: slimFindings, sfStats, domain, provider, apiKey, model }),
+        body: JSON.stringify({
+          findings: slimFindings,
+          sfStats,
+          domain,
+          provider: selectedProvider,
+          apiKey: selectedApiKey,
+          model: selectedModel,
+        }),
       });
 
       // Захисний парсинг: завжди читаємо текст спочатку, потім парсимо JSON
@@ -92,6 +150,9 @@ export default function AiAnalysisPanel({
       }
 
       const aiResult = body.result as AiAuditAnalysis;
+      // Зберігаємо метадані про провайдер/модель
+      aiResult.provider = selectedProvider;
+      aiResult.model = selectedModel;
       setResult(aiResult);
 
       // Зберігаємо в кеш проєкту
@@ -113,19 +174,71 @@ export default function AiAnalysisPanel({
   }
 
   const hasNoFindings = findings.length === 0 && !result;
+  const hasNoProvider = availableProviders.length === 0;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      {/* Рядок керування: вибір провайдера + моделі + кнопка запуску */}
+      <div className="flex flex-wrap items-center gap-2">
+
+        {/* Вибір провайдера */}
+        {availableProviders.length > 1 && (
+          <select
+            value={selectedProvider}
+            onChange={(e) => handleProviderChange(e.target.value as AIProvider)}
+            disabled={loading}
+            className="h-9 px-2 py-1 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
+            title="Провайдер AI"
+          >
+            {availableProviders.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Вибір / введення моделі */}
+        {availableProviders.length > 0 && (
+          <div className="relative">
+            {/* Показуємо список моделей якщо вони є, або текстове поле */}
+            {(allProviders?.[selectedProvider]?.models?.length ?? 0) > 0 ? (
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={loading}
+                className="h-9 px-2 py-1 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 max-w-[220px]"
+                title="Модель"
+              >
+                {allProviders![selectedProvider]!.models!.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            ) : selectedModel ? (
+              <input
+                type="text"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={loading}
+                placeholder="ID моделі"
+                className="h-9 px-2 py-1 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 max-w-[220px] font-mono"
+                title="Модель"
+              />
+            ) : null}
+          </div>
+        )}
+
         <button
           onClick={runAnalysis}
-          disabled={loading || findings.length === 0}
+          disabled={loading || findings.length === 0 || hasNoProvider}
           className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? "AI аналіз…" : result ? "Оновити AI аналіз" : "Запустити AI аналіз"}
         </button>
+
         {hasNoFindings && (
           <span className="text-xs text-gray-400">Спочатку запустіть аудит Screaming Frog</span>
+        )}
+        {hasNoProvider && !hasNoFindings && (
+          <span className="text-xs text-amber-500">Налаштуйте AI провайдер у Налаштуваннях</span>
         )}
       </div>
 
@@ -150,7 +263,7 @@ export default function AiAnalysisPanel({
               <h3 className="text-sm font-semibold text-violet-800 dark:text-violet-300">Загальний висновок</h3>
               {result.provider && (
                 <span className="text-xs text-violet-500 dark:text-violet-400 opacity-70">
-                  {result.provider} / {result.model}
+                  {PROVIDER_LABELS[result.provider] ?? result.provider} / {result.model}
                 </span>
               )}
             </div>

@@ -1171,9 +1171,22 @@ export default function TechAuditPanel({ domain, psiApiKey, sfResult, onResult, 
                 verifyLinks={[{ label: "PageSpeed", url: ext.pagespeed }]}
               >
                 {result.imageOpt.totalImgs > 0 && (
-                  <div className="grid grid-cols-4 gap-2 mt-1">
+                  <div className="grid grid-cols-3 gap-2 mt-1">
                     <StatPill label="Зображень" value={result.imageOpt.totalImgs} />
-                    <StatPill label="Lazy load" value={`${Math.round(result.imageOpt.lazyLoadRatio * 100)}%`} warn={result.imageOpt.lazyLoadRatio < 0.5 && result.imageOpt.totalImgs >= 3} />
+                    <StatPill
+                      label="Без alt"
+                      value={result.imageOpt.imgsWithoutAlt ?? 0}
+                      warn={(result.imageOpt.imgsWithoutAlt ?? 0) > 0}
+                    />
+                    <StatPill
+                      label="Alt порожній"
+                      value={result.imageOpt.imgsWithEmptyAlt ?? 0}
+                    />
+                    <StatPill
+                      label="Lazy load"
+                      value={`${Math.round(result.imageOpt.lazyLoadRatio * 100)}%`}
+                      warn={result.imageOpt.lazyLoadRatio < 0.5 && result.imageOpt.totalImgs >= 3}
+                    />
                     <StatPill label="WebP/AVIF" value={result.imageOpt.hasModernFormat ? "✓" : "✗"} warn={!result.imageOpt.hasModernFormat} />
                     <StatPill label="Oversized" value={result.imageOpt.oversizedImgs} warn={result.imageOpt.oversizedImgs > 0} />
                   </div>
