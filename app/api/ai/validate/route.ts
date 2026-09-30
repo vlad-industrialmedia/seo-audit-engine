@@ -88,13 +88,14 @@ export async function POST(req: NextRequest) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: model || "grok-beta",
+            model: model || "grok-3-mini",
             messages: [{ role: "user", content: "ping" }],
             max_tokens: 5,
           }),
         });
 
         if (res.status === 401) return NextResponse.json({ valid: false, error: "Invalid API key" });
+        // 400 може означати невірну модель (депрекована), але ключ валідний
         if (res.ok || res.status === 400) return NextResponse.json({ valid: true });
         return NextResponse.json({ valid: false, error: "Cannot connect to xAI Grok" });
       }

@@ -43,8 +43,9 @@ export const AI_PROVIDER_CONFIGS: Record<AIProvider, Omit<AIProviderConfig, "api
     label: "xAI Grok",
     description: "Grok — модель від xAI з доступом до актуальних даних",
     models: [
-      { id: "grok-beta", name: "Grok Beta", contextWindow: 131072, costPer1KInput: 0.005, costPer1KOutput: 0.015, recommended: true },
-      { id: "grok-vision-beta", name: "Grok Vision Beta", contextWindow: 8192, costPer1KInput: 0.005, costPer1KOutput: 0.015 },
+      { id: "grok-3-mini", name: "Grok 3 Mini", contextWindow: 131072, costPer1KInput: 0.003, costPer1KOutput: 0.015, recommended: true },
+      { id: "grok-3", name: "Grok 3", contextWindow: 131072, costPer1KInput: 0.015, costPer1KOutput: 0.075 },
+      { id: "grok-2-1212", name: "Grok 2 (Dec 2024)", contextWindow: 131072, costPer1KInput: 0.002, costPer1KOutput: 0.01 },
     ],
   },
   groq: {

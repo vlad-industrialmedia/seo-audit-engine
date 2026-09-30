@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: model || "grok-beta",
+            model: model || "grok-3-mini",
             messages: [
               { role: "system", content: "You are a Senior SEO specialist. Respond in valid JSON." },
               { role: "user", content: prompt },

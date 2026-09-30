@@ -65,7 +65,8 @@ async function safeStatus(url: string): Promise<number | null> {
       method: "HEAD",
       headers: { "User-Agent": BOT_UA },
       redirect: "manual",
-      signal: AbortSignal.timeout(8000),
+      // Зменшено до 4s щоб вкластись у Vercel 60s ліміт при sitemap-перевірці
+      signal: AbortSignal.timeout(4000),
     });
     return res.status;
   } catch {
@@ -391,8 +392,9 @@ export async function checkSitemap(
     sfComparison = { sitemapUrlCount: urlCount, sfUrlCount: sfTotalUrls, missingFromSitemapEstimate };
   }
 
-  // Перевіряємо статус-коди ВСІХ унікальних URL з sitemap (до 500 для розумного обмеження часу)
-  const MAX_SITEMAP_CHECK = 500;
+  // Перевіряємо статус-коди URL з sitemap.
+  // Ліміт 50 URL × batch 8 × timeout 4s = макс. ~25s, щоб вкластись у Vercel 60s ліміт.
+  const MAX_SITEMAP_CHECK = 50;
   const uniqueUrls = Array.from(new Set(allPageUrls));
   const urlsToCheck = uniqueUrls.slice(0, MAX_SITEMAP_CHECK);
   const statusMap = await batchCheckStatus(urlsToCheck);
@@ -418,7 +420,7 @@ export async function checkSitemap(
   let checkStatus: SitemapCheck["status"] = "ok";
 
   const limitNote = uniqueUrls.length > MAX_SITEMAP_CHECK
-    ? ` (перевірено перші ${MAX_SITEMAP_CHECK} з ${uniqueUrls.length.toLocaleString("uk")})`
+    ? ` (вибірка: ${MAX_SITEMAP_CHECK} з ${uniqueUrls.length.toLocaleString("uk")} URL)`
     : "";
   parts.push(`Sitemap знайдено: ${foundUrl} (${urlCount.toLocaleString("uk")} URL).`);
 

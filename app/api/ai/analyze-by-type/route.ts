@@ -203,7 +203,7 @@ async function callAI(prompt: string, provider: string, apiKey: string, model: s
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: model || "grok-beta",
+          model: model || "grok-3-mini",
           messages: [
             { role: "system", content: "Ти SEO-спеціаліст. Відповідай JSON українською мовою." },
             { role: "user", content: prompt },
